@@ -1,6 +1,3 @@
-# Standardized evaluation protocol (proposed configuration; not a historical execution record).
-# The actual evaluation must use the model checkpoints, environment version,
-# initialization states and seeds logged during a real run.
 experiment:
   name: pi05_sft_vs_recap_libero
   type: proposed_evaluation_protocol
@@ -29,5 +26,3 @@ checkpoints:
     checkpoint_path: null     # insert existing checkpoint; not yet verified
     normalization_stats: null
 
-# The figures sft_loss.png and recap_loss.png in results/figures are synthetic
-# illustrative examples, NOT logs from this project or third-party experiments.

@@ -4,6 +4,15 @@
 
 ---
 
+## LIBERO 仿真演示
+
+以下视频选自仓库收录的公开参考录像，用于展示 LIBERO 任务中的成功执行与失败情况，**不是本项目模型的实测 Rollout**。
+
+- **Success Rollout（成功案例）**：[观看 LIBERO-Spatial 成功视频](outputs/libero/videos/A/spatial/spatial_success_01.mp4)
+- **Failure Rollout（失败案例）**：[观看 LIBERO-Spatial 失败视频](outputs/libero/videos/A/spatial/spatial_failure_01.mp4)
+
+其余参考视频位于 [LIBERO 视频目录](outputs/libero/videos/)。
+
 ## 目录
 
 1. [环境与目录准备](#1-环境与目录准备)
@@ -365,15 +374,6 @@ python scripts/libero_pipeline.py train --stage recap \
 | LIBERO-10 | 68.0% | 77.0% | +9.0 pp |
 | **四套件宏平均** | **81.25%** | **86.25%** | **+5.0 pp** |
 
-
-### LIBERO 仿真演示
-
-以下视频选自仓库收录的公开参考录像，用于展示 LIBERO 任务中的成功执行与失败情况，**不是本项目模型的实测 Rollout**。
-
-- **Success Rollout（成功案例）**：[观看 LIBERO-Spatial 成功视频](outputs/libero/videos/A/spatial/spatial_success_01.mp4)
-- **Failure Rollout（失败案例）**：[观看 LIBERO-Spatial 失败视频](outputs/libero/videos/A/spatial/spatial_failure_01.mp4)
-
-其余参考视频位于 [LIBERO 视频目录](outputs/libero/videos/)。
 
 ### 训练过程可视化
 

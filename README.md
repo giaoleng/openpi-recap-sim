@@ -366,15 +366,28 @@ python scripts/libero_pipeline.py train --stage recap \
 | **四套件宏平均** | **81.25%** | **86.25%** | **+5.0 pp** |
 
 
+### LIBERO 仿真演示
+
+以下视频选自仓库收录的公开参考录像，用于展示 LIBERO 任务中的成功执行与失败情况，**不是本项目模型的实测 Rollout**。
+
+- **Success Rollout（成功案例）**：[观看 LIBERO-Spatial 成功视频](outputs/libero/videos/A/spatial/spatial_success_01.mp4)
+- **Failure Rollout（失败案例）**：[观看 LIBERO-Spatial 失败视频](outputs/libero/videos/A/spatial/spatial_failure_01.mp4)
+
+其余参考视频位于 [LIBERO 视频目录](outputs/libero/videos/)。
+
 ### 训练过程可视化
 
 **π₀.₅ SFT Training Loss**
 
 ![SFT Training Loss](results/figures/sft_loss.png)
 
+*注：示意数据，非实际训练日志。*
+
 **RECAP Policy Training Loss**
 
 ![RECAP Training Loss](results/figures/recap_loss.png)
+
+*注：示意数据，非实际训练日志。*
 
 ### LIBERO 评测配置
 

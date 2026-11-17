@@ -8,7 +8,8 @@
 
 以下视频选自仓库收录的公开参考录像，用于展示 LIBERO 任务中的成功执行与失败情况，**不是本项目模型的实测 Rollout**。
 
-- **Success Rollout（成功案例）**：[观看 LIBERO-Spatial 成功视频] 
+- **Success Rollout（成功案例）**：[观看 LIBERO-Spatial 成功视频]
+
 https://github.com/user-attachments/assets/01a1c6e0-ad78-4434-b520-825568404c73
 
 

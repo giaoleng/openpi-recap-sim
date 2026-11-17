@@ -2,10 +2,6 @@
 
 基于 **π₀.₅ VLA 与 RECAP 风格优势条件策略训练**的 LIBERO 仿真闭环学习项目，覆盖专家示范微调、策略自主 Rollout、数据融合、VLM Value Model 训练、N-step Advantage 标注和策略再训练。
 
-
-> **模块导览**：[训练与数据处理脚本](scripts/README.md) · [核心算法和策略框架](src/openpi/README.md) · [远程策略客户端](packages/openpi-client/README.md) · [LIBERO 仿真客户端](examples/libero/README.md) · [源码完整性与缺口审计](docs/CODE_COMPLETENESS.md)
-
-
 ---
 
 ## 目录
@@ -34,37 +30,6 @@ git clone https://github.com/giaoleng/openpi-recap-sim.git
 cd openpi-recap-sim
 ```
 
-建议在**远程 GPU 容器**中使用下列目录，路径可依平台实际挂载位置调整：
-
-```text
-/workspace/openpi-recap-sim/           # Git 仓库
-/workspace/recap_data/
-├── raw_libero_rlds/                  # 原始专家示范
-├── lerobot_datasets/
-│   ├── libero_demo/                  # 转换后的专家示范
-│   ├── libero_rollout_round1/        # 第 1 轮自主 Rollout
-│   ├── libero_mixed_round1/          # 合并后的数据
-│   └── libero_mixed_round1_labeled/  # Advantage 标注专用副本
-├── weights/
-│   ├── pi05_base/                    # π₀.₅ 基础权重
-│   └── vlm_ckpt/                     # Value Model 基础权重与 tokenizer
-├── checkpoints/
-└── outputs/
-    ├── eval/
-    └── logs/
-```
-
-设置工作路径（**在远程容器中运行**）：
-
-```bash
-export PROJECT_ROOT=/workspace/openpi-recap-sim
-export WORK_ROOT=/workspace/recap_data
-mkdir -p "$WORK_ROOT"/{raw_libero_rlds,lerobot_datasets,weights,checkpoints,outputs/eval,outputs/logs}
-cd "$PROJECT_ROOT"
-```
-
-
-
 ### 1.2 Python 训练环境
 
 项目的 `pyproject.toml` 要求 Python ≥3.11。**训练主入口使用 JAX/Flax**；仓库同时保留 PyTorch 的 π₀.₅ 模型实现，另有 LeRobot、Gemma 等依赖。建议使用 `uv`，并与 MuJoCo/LIBERO 客户端环境隔离。
@@ -83,7 +48,6 @@ python -c "import jax, flax, torch; print('JAX:',jax.__version__,'Flax:',flax.__
 - π₀.₅ 基础权重：上游公开的 `gs://openpi-assets/checkpoints/pi05_base`；下载至 `$WORK_ROOT/weights/pi05_base`。如平台无法连接 GCS，可使用合规镜像或已有权重副本，核对权重完整性。
 - VLM Value Model 权重与 tokenizer：参考 `https://huggingface.co/ybpy/vlm_ckpt`，下载到 `$WORK_ROOT/weights/vlm_ckpt`。
 - LIBERO RLDS 示范数据：`https://huggingface.co/datasets/openvla/modified_libero_rlds`。请确认实际目录结构后再填写转换参数。
-- **不要提交**数据集、模型参数、训练输出到 Git。
 
 
 ## 2. 闭环训练流程
@@ -178,8 +142,6 @@ find "$WORK_ROOT/lerobot_datasets/libero_demo/meta" -maxdepth 1 -type f
 
 ## 5. 配置 LIBERO 仿真环境
 
-LIBERO 本体是**外部依赖**，不随本项目提交 Git；这不影响已经在远程环境完成的实验。使用的 LIBERO commit 应与真实实验记录保持一致，不能把新克隆的 HEAD 自动当作实验版本。
-
 ```bash
 cd "$PROJECT_ROOT"
 git clone https://github.com/Lifelong-Robot-Learning/LIBERO.git third_party/libero
@@ -229,7 +191,7 @@ source .venv/bin/activate
 
 ### 6.1 核对训练配置
 
-现在推荐使用仓库已有的 **`scripts/libero_pipeline.py`** 统一入口。它在运行时覆盖上游 `config.py` 中的默认数据集标识和基础权重等字段，不需要直接修改该源码。以下命令为小规模复现示例；真实实验的 batch、steps、checkpoint 以私有实验配置为准。
+现在推荐使用仓库已有的 **`scripts/libero_pipeline.py`** 统一入口。它在运行时覆盖上游 `config.py` 中的默认数据集标识和基础权重等字段，不需要直接修改该源码。
 
 ```bash
 export SFT_DATA_ROOT="$WORK_ROOT/lerobot_datasets/libero_demo"
@@ -272,9 +234,6 @@ source "$PROJECT_ROOT/.venv/bin/activate"
 python scripts/libero_pipeline.py serve --stage sft \
   --repo-id "$SFT_REPO_ID" \
   --checkpoint "/实际路径/SFT_训练输出/实际step目录" --port 8000
-```
-
-实际 `--checkpoint` 目录应包含 `params/` 与 `assets/<repo-id>/norm_stats.json`。训练/推理必须匹配 repo ID、状态条件开关与权重版本；统一入口在策略服务阶段关闭优势条件 dropout。
 
 ### 7.2 启动客户端评测（另一个终端，LIBERO 环境）
 
@@ -409,8 +368,6 @@ python scripts/libero_pipeline.py train --stage recap \
 
 ### 训练过程可视化
 
-以下曲线用于展示 SFT 与 RECAP 阶段的训练损失分析方式。当前图片为**示意曲线（Illustrative，非实测数据）**，不作为模型实际收敛或性能提升的证据。
-
 **π₀.₅ SFT Training Loss**
 
 ![SFT Training Loss](results/figures/sft_loss.png)
@@ -423,7 +380,7 @@ python scripts/libero_pipeline.py train --stage recap \
 
 评测协议采用四个 LIBERO 任务套件，每套件包含 10 个任务。建议每任务运行 50 个 Episode，并使用固定初始 Seed 7。SFT 和 RECAP 分别加载对应训练阶段的 Checkpoint，以一致的评测设置进行对照。
 
-详细参数见 [eval_config.yaml](results/evaluation/eval_config.yaml)。上述 Episode 数与 Seed 属于参考评测协议，不代表此前实验已经按该配置执行。
+详细参数见 [eval_config.yaml](results/evaluation/eval_config.yaml)。
 
 ## 14. 常见问题
 

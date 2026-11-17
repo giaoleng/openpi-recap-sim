@@ -1,0 +1,33 @@
+# Standardized evaluation protocol (proposed configuration; not a historical execution record).
+# The actual evaluation must use the model checkpoints, environment version,
+# initialization states and seeds logged during a real run.
+experiment:
+  name: pi05_sft_vs_recap_libero
+  type: proposed_evaluation_protocol
+  benchmark: LIBERO
+
+evaluation:
+  suites:
+    - libero_spatial
+    - libero_object
+    - libero_goal
+    - libero_10
+  tasks_per_suite: 10
+  episodes_per_task: 50   # proposed: 500 episodes/suite/model
+  seed: 7                 # proposed, inspired by public LIBERO reproduction protocols
+  success_metric: "successful_episodes / completed_episodes"
+  matched_initial_conditions: true  # required when running comparison
+
+checkpoints:
+  sft:
+    stage: supervised_finetuning
+    checkpoint_path: null     # insert existing checkpoint; not yet verified
+    normalization_stats: null
+  recap:
+    stage: advantage_conditioned_post_training
+    initialization: sft
+    checkpoint_path: null     # insert existing checkpoint; not yet verified
+    normalization_stats: null
+
+# The figures sft_loss.png and recap_loss.png in results/figures are synthetic
+# illustrative examples, NOT logs from this project or third-party experiments.

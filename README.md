@@ -8,7 +8,7 @@
 
 - [一、项目演示、核心结果与闭环架构](#1-项目演示核心结果与闭环架构)
   - [1.1 LIBERO 仿真演示](#11-libero-仿真演示)
-  - [1.2 四套件对照实验结果](#12-四套件对照实验结果)
+  - [1.2 四套件对照与消融实验结果](#12-四套件对照与消融实验结果)
   - [1.3 RECAP 闭环学习流水线](#13-recap-闭环学习流水线)
 - [二、环境配置与数据准备](#2-环境配置与数据准备)
   - [2.1 克隆仓库与权重准备](#21-克隆仓库与权重准备)
@@ -38,23 +38,58 @@ https://github.com/user-attachments/assets/01a1c6e0-ad78-4434-b520-825568404c73
 
 https://github.com/user-attachments/assets/c0f2cece-82b4-41d0-98f2-1e90db5c2aff
 
-### 1.2 四套件对照实验结果
+### 1.2 四套件对照与消融实验结果
 
-在 `libero_spatial`、`libero_object`、`libero_goal` 与 `libero_10` 四个基准套件（共 40 个任务，每任务 50 个 Episode，固定种子 `seed=7`）上的闭环评测对比如下：
+#### 四套 LIBERO 成功率与 A/B/C 消融
 
-| 任务套件 | π₀.₅ SFT | SFT + RECAP 风格训练 | 性能提升 |
-| :--- | ---: | ---: | ---: |
-| LIBERO-Spatial | 85.0% | **89.0%** | +4.0 pp |
-| LIBERO-Object | 88.0% | **91.0%** | +3.0 pp |
-| LIBERO-Goal | 84.0% | **88.0%** | +4.0 pp |
-| LIBERO-10（长程复杂任务） | 68.0% | **77.0%** | **+9.0 pp** |
-| **四套件宏平均（Macro Avg）** | **81.25%** | **86.25%** | **+5.0 pp** |
+A 为仅使用专家示范的 **SFT 基线**；B 为在 SFT 权重上使用专家示范与自主 Rollout 的 **混合数据 SFT（不启用 Advantage Conditioning）**；C 为使用相同混合数据并启用 **Advantage Conditioning** 的 **RECAP 风格后训练**。
 
-#### 训练过程 Loss 曲线
+| 任务套件 | A：SFT 基线 | B：混合数据 SFT | C：RECAP | C − A |
+| :--- | ---: | ---: | ---: | ---: |
+| LIBERO-Spatial | 85.0% | 待实测 | **89.0%** | +4.0 pp |
+| LIBERO-Object | 88.0% | 待实测 | **91.0%** | +3.0 pp |
+| LIBERO-Goal | 84.0% | 待实测 | **88.0%** | +4.0 pp |
+| LIBERO-10（长程复杂任务） | 68.0% | 待实测 | **77.0%** | **+9.0 pp** |
+| **四套件宏平均（Macro Avg）** | **81.25%** | **待实测** | **86.25%** | **+5.0 pp** |
 
-| π₀.₅ SFT Training Loss | RECAP Policy Training Loss |
-| :---: | :---: |
-| ![SFT Training Loss](results/figures/sft_loss.png) | ![RECAP Training Loss](results/figures/recap_loss.png) |
+**对照目的：**A → B 检验新增 Rollout 数据的影响；B → C 检验相同混合数据下 Advantage Conditioning 的额外作用；A → C 衡量完整 RECAP 流程的总体收益。B、C 的有效比较需要对齐初始化权重、数据采样和训练预算。
+
+> **结果来源与评测口径：**A、C 成功率沿用项目既有报告结果，并非此次编辑重新测得。建议评测协议为四套件、共 40 个任务、每任务 **50 个 Episode**、`seed=7`（见 [评测协议](results/evaluation/eval_config.yaml)）。公开仓库尚未提供逐 Episode 记录，不能仅凭该配置确认既有结果的实际运行次数；B 尚未完成公开可核验的评测。
+
+#### 训练数据组成（模拟示例，非实测）
+
+> **重要说明：下方三张统计表全部是演示用的假设数字，并非从本项目的数据集或训练日志提取，不能用于简历、实验结论或论文。**仅为展示需要统计哪些指标；正式使用前应全部替换为实际数据。示例假设每个任务 50 条专家示范、额外采集 30 条自主 Rollout，共 40 个任务。
+
+| 数据来源 | 轨迹数（Episodes） | 数据占比 | Advantage 标签 |
+| :--- | ---: | ---: | :--- |
+| 专家示范（Expert） | 2,000 | 62.50% | Positive |
+| 成功 Rollout | 958 | 29.94% | Positive / Negative |
+| 失败 Rollout | 242 | 7.56% | Positive / Negative |
+| **合计** | **3,200** | **100%** | — |
+
+*数据占比按 Episode 数量计算，不等于训练时按帧或 Action Chunk 的实际采样比例。*
+
+#### 自主 Rollout 数据统计（模拟示例，非实测）
+
+| 任务套件 | 采集轨迹数 | 成功数 | 失败数 | 采集成功率 |
+| :--- | ---: | ---: | ---: | ---: |
+| LIBERO-Spatial | 300 | 252 | 48 | 84.00% |
+| LIBERO-Object | 300 | 263 | 37 | 87.67% |
+| LIBERO-Goal | 300 | 244 | 56 | 81.33% |
+| LIBERO-10 | 300 | 199 | 101 | 66.33% |
+| **合计** | **1,200** | **958** | **242** | **79.83%** |
+
+*这里的采集成功率表示生成训练用 Rollout 时的成功比例，不等于训练完成后的 A/B/C 基准评测成功率。*
+
+#### Advantage 标签分布（模拟示例，非实测）
+
+| 轨迹类型 | 总帧数 | Positive 帧数 | Negative 帧数 | Positive 占比 |
+| :--- | ---: | ---: | ---: | ---: |
+| 成功 Rollout | 234,710 | 81,900 | 152,810 | 34.89% |
+| 失败 Rollout | 70,180 | 9,567 | 60,613 | 13.63% |
+| **合计** | **304,890** | **91,467** | **213,423** | **30.00%** |
+
+*PiStar 风格标注按自主 Rollout 的**帧级** N-step Advantage 全局排序，示例参数为 `lookahead=50`、`top_percent=30`；专家示范默认标记为 Positive。成功 Episode 中也可能有 Negative 帧，失败 Episode 中也可能有 Positive 帧。上表的分类分布并非算法必然结果，实际分布必须由 Value Model 标注结果统计。*
 
 ### 1.3 RECAP 闭环学习流水线
 
@@ -360,7 +395,7 @@ python scripts/libero_pipeline.py train --stage recap \
 ### 4.1 LIBERO 统一评测协议
 
 * **对照模型**：同等条件下对比 **SFT Baseline**（第 3.1 节）与 **RECAP-Style Checkpoint**（第 3.4 节）。
-* **评测规模**：覆盖 `libero_spatial`、`libero_object`、`libero_goal`、`libero_10` 四个套件（每套件 10 个任务），每任务运行 50 个 Episode，固定初始种子 `seed=7`（完整评测参数见 [eval_config.yaml](results/evaluation/eval_config.yaml)）。
+* **建议评测规模（非既有实测次数声明）**：覆盖 `libero_spatial`、`libero_object`、`libero_goal`、`libero_10` 四个套件（每套件 10 个任务），每任务建议运行 50 个 Episode，固定初始种子 `seed=7`（完整评测参数见 [eval_config.yaml](results/evaluation/eval_config.yaml)）。
 * **指标口径**：单任务成功率 $\text{SR} = \frac{\text{成功 Episode 数}}{\text{评测 Episode 总数}} \times 100\%$；先计算各套件 10 个任务的均值，再求四套件等权宏平均（Macro Average）。
 
 ### 4.2 常见问题排查（FAQ）

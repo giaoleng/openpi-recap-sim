@@ -21,8 +21,9 @@
   - [3.4 阶段四：N-step Advantage 标注与 RECAP 再训练](#34-阶段四n-step-advantage-标注与-recap-再训练)
 - [四、评测规范与常见问题](#4-评测规范与常见问题)
   - [4.1 LIBERO 统一评测协议](#41-libero-统一评测协议)
-  - [4.2 常见问题排查（FAQ）](#42-常见问题排查faq)
-  - [4.3 许可证](#43-许可证)
+  - [4.2 GPU/LIBERO 端到端冒烟验收](#42-gpulibero-端到端冒烟验收)
+  - [4.3 常见问题排查（FAQ）](#43-常见问题排查faq)
+  - [4.4 许可证](#44-许可证)
 
 ---
 
@@ -407,6 +408,7 @@ python scripts/libero_pipeline.py serve --stage recap \
   --repo-id "$RECAP_REPO_ID" --checkpoint "/path/to/recap_checkpoints/step_xxxxx" \
   --adv-guidance-beta 2.0 --port 8000
 # 客户端评测C组需要额外传入 --args.adv_ind_input positive
+# 并传 --args.adv_guidance_beta 2.0 记录服务端推理参数
 ```
 
 #### 3. B 组：同一混合数据的无 Advantage SFT 消融
@@ -437,7 +439,7 @@ python scripts/libero_pipeline.py train --stage mixed_sft \
 * **对照模型**：同任务、同初始状态下对比 A：SFT、B：Mixed-Data SFT、C：RECAP；B 与 C 使用相同数据及后训练预算。
 * **建议评测规模（非既有实测次数声明）**：覆盖 `libero_spatial`、`libero_object`、`libero_goal`、`libero_10` 四个套件（每套件 10 个任务），每任务建议运行 50 个 Episode，固定初始种子 `seed=7`（完整评测参数见 [eval_config.yaml](results/evaluation/eval_config.yaml)）。
 * **指标口径**：单任务成功率 = 成功 Episode / 有效 Episode（成功 + 正常失败）；异常 Episode 单独计为 `error`，不混作正常失败。出现错误时，本轮评测标记为未完成；四套件以等权宏平均汇总。
-* **可复核结果**：每次运行在 `results/evaluation/runs/` 生成独立的逐 Episode CSV 和汇总 JSON；JSON 的 `run_metadata` 还记录 Checkpoint 路径/Step、项目与 LIBERO Commit、Action Horizon、Advantage 输入及是否保存视频。模型权重路径和 Action Horizon 由客户端显式传入（不能从Socket自动推断），Git Commit尽量从本地仓库读取，无法确定时保留 null，**请与实际服务端配置核对**。
+* **可复核结果**：每次运行在 `results/evaluation/runs/` 生成独立的逐 Episode CSV 和汇总 JSON；JSON 的 `run_metadata` 还记录 Checkpoint 路径/Step、项目与 LIBERO Commit、Action Horizon、Advantage 输入、Guidance β 及是否保存视频。模型权重路径和 Action Horizon 由客户端显式传入（不能从Socket自动推断），Git Commit尽量从本地仓库读取，无法确定时保留 null，**请与实际服务端配置核对**。
 * **视频保存开关**：完整评测默认 `--args.save_videos false`，避免生成成千上万的MP4；需要录制典型成功/失败视频时用 `--args.save_videos true`，文件名仍按运行/任务/Episode唯一命名。
 
 ```bash

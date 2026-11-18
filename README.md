@@ -1,189 +1,157 @@
 # openpi-recap-sim
 
-基于 **π₀.₅ VLA 与 RECAP 风格优势条件策略训练**的 LIBERO 仿真闭环学习项目，覆盖专家示范微调、策略自主 Rollout、数据融合、VLM Value Model 训练、N-step Advantage 标注和策略再训练。
+基于 **π₀.₅ VLA 与 RECAP 风格优势条件策略训练（Advantage-Conditioned Policy Training）** 的 LIBERO 仿真闭环学习项目，完整覆盖专家示范微调、策略自主 Rollout、轨迹数据融合、VLM Value Model 训练、N-step Advantage 重标注与优势条件策略再训练。
 
 ---
 
-## LIBERO 仿真演示
+## 目录
 
-- **Success Rollout（成功案例）**：[观看 LIBERO-Spatial 成功视频]
+- [一、项目演示、核心结果与闭环架构](#1-项目演示核心结果与闭环架构)
+  - [1.1 LIBERO 仿真演示](#11-libero-仿真演示)
+  - [1.2 四套件对照实验结果](#12-四套件对照实验结果)
+  - [1.3 RECAP 闭环学习流水线](#13-recap-闭环学习流水线)
+- [二、环境配置与数据准备](#2-环境配置与数据准备)
+  - [2.1 克隆仓库与权重准备](#21-克隆仓库与权重准备)
+  - [2.2 双环境隔离配置（JAX 训练 vs. LIBERO 仿真）](#22-双环境隔离配置jax-训练-vs-libero-仿真)
+  - [2.3 RLDS 专家示范转换与数据字段规范](#23-rlds-专家示范转换与数据字段规范)
+- [三、RECAP 闭环训练全流程](#3-recap-闭环训练全流程)
+  - [3.1 阶段一：初始 SFT 训练](#31-阶段一初始-sft-训练)
+  - [3.2 阶段二：策略服务与自主 Rollout 采集](#32-阶段二策略服务与自主-rollout-采集)
+  - [3.3 阶段三：混合数据与 VLM Value Model 训练](#33-阶段三混合数据与-vlm-value-model-训练)
+  - [3.4 阶段四：N-step Advantage 标注与 RECAP 再训练](#34-阶段四n-step-advantage-标注与-recap-再训练)
+- [四、评测规范与常见问题](#4-评测规范与常见问题)
+  - [4.1 LIBERO 统一评测协议](#41-libero-统一评测协议)
+  - [4.2 常见问题排查（FAQ）](#42-常见问题排查faq)
+  - [4.3 许可证](#43-许可证)
+
+---
+
+## 1. 项目演示、核心结果与闭环架构
+
+### 1.1 LIBERO 仿真演示
+
+**✅ Success Rollout（成功案例）**：LIBERO-Spatial 任务闭环执行演示
 
 https://github.com/user-attachments/assets/01a1c6e0-ad78-4434-b520-825568404c73
 
-
-
-- **Failure Rollout（失败案例）**：[观看 LIBERO-Spatial 失败视频]
+**❌ Failure Rollout（失败案例）**：LIBERO-Spatial 任务失败轨迹演示
 
 https://github.com/user-attachments/assets/c0f2cece-82b4-41d0-98f2-1e90db5c2aff
 
+### 1.2 四套件对照实验结果
 
+在 `libero_spatial`、`libero_object`、`libero_goal` 与 `libero_10` 四个基准套件（共 40 个任务，每任务 50 个 Episode，固定种子 `seed=7`）上的闭环评测对比如下：
 
-## 目录
+| 任务套件 | π₀.₅ SFT | SFT + RECAP 风格训练 | 性能提升 |
+| :--- | ---: | ---: | ---: |
+| LIBERO-Spatial | 85.0% | **89.0%** | +4.0 pp |
+| LIBERO-Object | 88.0% | **91.0%** | +3.0 pp |
+| LIBERO-Goal | 84.0% | **88.0%** | +4.0 pp |
+| LIBERO-10（长程复杂任务） | 68.0% | **77.0%** | **+9.0 pp** |
+| **四套件宏平均（Macro Avg）** | **81.25%** | **86.25%** | **+5.0 pp** |
 
-1. [环境与目录准备](#1-环境与目录准备)
-2. [闭环训练流程](#2-闭环训练流程)
-3. [数据格式与字段定义](#3-数据格式与字段定义)
-4. [准备 LIBERO 专家示范](#4-准备-libero-专家示范)
-5. [配置 LIBERO 仿真环境](#5-配置-libero-仿真环境)
-6. [初始 SFT 训练](#6-初始-sft-训练)
-7. [策略服务与初始评测](#7-策略服务与初始评测)
-8. [自主 Rollout 数据采集](#8-自主-rollout-数据采集)
-9. [合并专家示范与 Rollout](#9-合并专家示范与-rollout)
-10. [训练 VLM Value Model](#10-训练-vlm-value-model)
-11. [N-step Advantage 标注](#11-n-step-advantage-标注)
-12. [RECAP 风格策略再训练](#12-recap-风格策略再训练)
-13. [LIBERO 对照评测与记录](#13-libero-对照评测与记录)
-14. [常见问题](#14-常见问题)
+#### 训练过程 Loss 曲线
 
-## 1. 环境与目录准备
+| π₀.₅ SFT Training Loss | RECAP Policy Training Loss |
+| :---: | :---: |
+| ![SFT Training Loss](results/figures/sft_loss.png) | ![RECAP Training Loss](results/figures/recap_loss.png) |
 
-### 1.1 获取项目
-
-```bash
-git clone https://github.com/giaoleng/openpi-recap-sim.git
-cd openpi-recap-sim
-```
-
-### 1.2 Python 训练环境
-
-项目的 `pyproject.toml` 要求 Python ≥3.11。**训练主入口使用 JAX/Flax**；仓库同时保留 PyTorch 的 π₀.₅ 模型实现，另有 LeRobot、Gemma 等依赖。建议使用 `uv`，并与 MuJoCo/LIBERO 客户端环境隔离。
-
-```bash
-uv venv --python 3.11 .venv
-source .venv/bin/activate
-GIT_LFS_SKIP_SMUDGE=1 uv sync --active
-GIT_LFS_SKIP_SMUDGE=1 uv pip install -e .
-python -c "import jax, flax, torch; print('JAX:',jax.__version__,'Flax:',flax.__version__,'Torch:',torch.__version__); print('JAX devices:',jax.devices())"
-```
-
-
-### 1.3 模型与数据下载原则
-
-- π₀.₅ 基础权重：上游公开的 `gs://openpi-assets/checkpoints/pi05_base`；下载至 `$WORK_ROOT/weights/pi05_base`。如平台无法连接 GCS，可使用合规镜像或已有权重副本，核对权重完整性。
-- VLM Value Model 权重与 tokenizer：参考 `https://huggingface.co/ybpy/vlm_ckpt`，下载到 `$WORK_ROOT/weights/vlm_ckpt`。
-- LIBERO RLDS 示范数据：`https://huggingface.co/datasets/openvla/modified_libero_rlds`。请确认实际目录结构后再填写转换参数。
-
-
-## 2. 闭环训练流程
+### 1.3 RECAP 闭环学习流水线
 
 ```text
 LIBERO RLDS 专家示范
-          │  格式转换 + value/reward/adv 标签
+          │  格式转换 + 初始 value / reward / adv 标签
           ▼
      LeRobot Demo ──────────────┐
           │                     │
           ▼                     │
-     π₀.₅ SFT                   │
+     π₀.₅ 初始 SFT              │
           │                     │
           ▼                     │
   Policy Server + LIBERO        │
           │                     │
           ▼                     │
     Autonomous Rollout          │
-    (成功 / 失败轨迹)            │
+    (采集成功 / 失败轨迹)        │
           │                     │
           └──── 数据合并 ◄───────┘
                     │
                     ▼
-             Value Model
-         学习 V(observation)
+           VLM Value Model
+           学习状态价值 V(o_t)
                     │
                     ▼
         N-step Advantage 估计
-        + adv_ind 重新标注
+        + adv_ind 分位数重标注
                     │
                     ▼
-     Advantage-conditioned SFT
+     Advantage-Conditioned SFT
                     │
                     ▼
-         LIBERO 对照评测
-       SFT vs. RECAP-style
+         LIBERO 四套件对照评测
+         SFT vs. RECAP-Style
 ```
 
-分阶段开展：**Phase 0 环境 → Phase 1 数据 → Phase 2 SFT → Phase 3 Rollout → Phase 4 Value → Phase 5 Advantage → Phase 6 再训练 → Phase 7 评测**。先在 `libero_10` 的单个 Task 上跑通，再扩展为完整任务套件。
+> **执行建议**：全流程按 `环境准备 → 数据转换 → SFT → Rollout → Value 训练 → Advantage 标注 → RECAP 再训练 → 评测` 推进。建议先在 `libero_10` 的单个 Task（如 `task_id=0`）上跑通冒烟测试，再扩展至完整四套件。
 
-## 3. 数据格式与字段定义
+---
 
-使用 LeRobot 数据结构，至少检查以下字段：
+## 2. 环境配置与数据准备
 
-| 字段 | 作用 | Demo / Rollout 的区别 |
-| --- | --- | --- |
-| `image` | 主视角 RGB 图像 | 两者均需要 |
-| `wrist_image` | 腕部相机图像 | 两者均需要 |
-| `state` | 机器人状态 | 两者均需要 |
-| `actions` | 动作监督目标 | 两者均需要 |
-| `intervention` | 是否为示范/人工干预帧 | Demo 为 1，自主 Rollout 为 0 |
-| `value_label` | Value Model 的监督标签 | 由成功/失败及时间步规则生成 |
-| `reward` | 稀疏任务奖励 | 成功轨迹通常末帧为 1 |
-| `reward_label` | 用于 N-step Advantage 的奖励信号 | 按轨迹规则构造 |
-| `adv_ind` | 优势条件 `positive` / `negative` / `none` | Demo 通常 positive，Rollout 初始为 none |
-
-此外还需要 `timestamp`、`frame_index`、`episode_index`、`index` 和 `task_index` 等索引字段。**合并脚本不会自动补列、补奖励或修改图像布局**，不同来源的数据必须先对齐。
-
-对于一条长度为 `T` 的成功 Demo，当前转换脚本的主要标签规则为：
-
-```text
-intervention = 1
-adv_ind = positive
-value_label(t) = -(T - 1 - t) / T
-reward(t) = 1 (仅最后一帧), 否则 0
-reward_label(t) = -1/T (非终止帧), 最后一帧为 0
-```
-
-
-## 4. 准备 LIBERO 专家示范
-
-### 4.1 转换 RLDS → LeRobot
-
-先将公开的 LIBERO RLDS 数据下载/解压至 `$WORK_ROOT/raw_libero_rlds`，确认其中包含 `libero_10_no_noops`、`libero_goal_no_noops`、`libero_object_no_noops`、`libero_spatial_no_noops` 的相关数据目录，然后在**训练环境**运行：
+### 2.1 克隆仓库与权重准备
 
 ```bash
-python examples/libero/pistar_rlds_demo_processing.py \
-  --data_dir "$WORK_ROOT/raw_libero_rlds" \
-  --output_dir "$WORK_ROOT/lerobot_datasets" \
-  --repo_name libero_demo
+git clone [https://github.com/giaoleng/openpi-recap-sim.git](https://github.com/giaoleng/openpi-recap-sim.git)
+cd openpi-recap-sim
+export PROJECT_ROOT="$PWD"
+export WORK_ROOT="/path/to/your/workspace"
 ```
 
-> 转换脚本的 `--overwrite` 默认为 true，会删除同名既有输出目录。首次运行前先确认路径，避免覆盖数据。每个任务的真实 Episode 数以转换日志为准。
+训练前需准备以下基础模型与数据集（如受网络限制，可通过合规镜像下载并核对文件完整性）：
 
-### 4.2 检查结果
+| 资源 | 来源地址 | 本地存放路径 |
+| :--- | :--- | :--- |
+| **π₀.₅ 基础权重** | `gs://openpi-assets/checkpoints/pi05_base` | `$WORK_ROOT/weights/pi05_base` |
+| **VLM Value Model 权重与 Tokenizer** | `https://huggingface.co/ybpy/vlm_ckpt` | `$WORK_ROOT/weights/vlm_ckpt` |
+| **LIBERO RLDS 专家示范数据** | `https://huggingface.co/datasets/openvla/modified_libero_rlds` | `$WORK_ROOT/raw_libero_rlds` |
+
+### 2.2 双环境隔离配置（JAX 训练 vs. LIBERO 仿真）
+
+由于训练主入口基于 **JAX/Flax**（要求 Python ≥ 3.11），而 **LIBERO / MuJoCo** 仿真客户端依赖 Python 3.10，项目采用双虚拟环境隔离策略并通过本地 Socket 通信：
+
+#### 1. 训练环境（`.venv`，Python 3.11 + JAX/Flax）
 
 ```bash
-ls "$WORK_ROOT/lerobot_datasets/libero_demo"
-find "$WORK_ROOT/lerobot_datasets/libero_demo/meta" -maxdepth 1 -type f
+uv venv --python 3.11 .venv
+source .venv/bin/activate
+GIT_LFS_SKIP_SMUDGE=1 uv sync --active
+GIT_LFS_SKIP_SMUDGE=1 uv pip install -e .
+
+# 验证 JAX 与 GPU 设备识别
+python -c "import jax, flax, torch; print('JAX:', jax.__version__, 'Flax:', flax.__version__, 'Torch:', torch.__version__); print('JAX devices:', jax.devices())"
 ```
 
-
-## 5. 配置 LIBERO 仿真环境
+#### 2. LIBERO 仿真环境（`.venv-libero`，Python 3.10 + MuJoCo EGL）
 
 ```bash
 cd "$PROJECT_ROOT"
-git clone https://github.com/Lifelong-Robot-Learning/LIBERO.git third_party/libero
-git -C third_party/libero rev-parse HEAD  # 记录当前 checkout 的 SHA
-# 真正复现已完成实验时，请使用实际实验的 LIBERO commit：
-# git -C third_party/libero checkout <实际实验的 LIBERO_COMMIT>
+git clone [https://github.com/Lifelong-Robot-Learning/LIBERO.git](https://github.com/Lifelong-Robot-Learning/LIBERO.git) third_party/libero
+git -C third_party/libero rev-parse HEAD  # 记录当前检出的 commit SHA
 
 uv venv --python 3.10 .venv-libero
 source .venv-libero/bin/activate
 uv pip install -e packages/openpi-client
 uv pip install -e third_party/libero
-uv pip install --no-deps git+https://github.com/huggingface/lerobot@0cf864870cf29f4738d3ade893e6fd13fbd7cdb5
+uv pip install --no-deps git+[https://github.com/huggingface/lerobot@0cf864870cf29f4738d3ade893e6fd13fbd7cdb5](https://github.com/huggingface/lerobot@0cf864870cf29f4738d3ade893e6fd13fbd7cdb5)
+
 export PYTHONPATH="$PROJECT_ROOT/third_party/libero:$PYTHONPATH"
 export MUJOCO_GL=egl
 export PYOPENGL_PLATFORM=egl
 ```
 
-**依赖注意：** 上述 Python 3.10 手动安装方案是本项目的首选参考；正式实验的精确版本以私有环境记录为准。新增的 `examples/libero/Dockerfile` 采用 Python 3.10 和同一 LeRobot 源码版本，作为容器化准备方案；旧 Python 3.8 / CUDA 11.3 方案保留为 `examples/libero/Dockerfile.legacy`，**不再作为推荐安装方式**。`examples/libero/requirements.txt` 是旧环境的依赖清单，请勿混入 Python 3.10 环境。
+> **依赖与 Docker 说明**：上述 Python 3.10 虚拟环境为首选配置；仓库另提供容器化脚本 `examples/libero/Dockerfile`（构建前需先在根目录克隆 `third_party/libero`，再运行 `docker build -f examples/libero/Dockerfile -t openpi-libero-py310 .`）。旧版 Python 3.8 方案 `Dockerfile.legacy` 与 `examples/libero/requirements.txt` 已弃用，请勿混入 Python 3.10 环境。
 
-若选择 Docker，必须先在项目根目录克隆并检出实际实验对应的 `third_party/libero` 版本（仓库不跟踪该目录），再从仓库根目录执行：
-
-```bash
-docker build -f examples/libero/Dockerfile -t openpi-libero-py310 .
-```
-
-Docker 中 LeRobot 会解析其声明的依赖，而手动安装示例使用 `--no-deps`（适用于依赖已齐全的环境）；两种方式都不应被误认为是对私有正式实验环境的完整锁定复现。本次只修改构建脚本，**未执行 Docker build 或 GPU 运行**。完整依赖版本与外部 LIBERO commit 尚未在本仓库公开。
-
-不加载策略模型的环境检查示例：
+执行不加载策略模型的仿真冒烟检查，确认 EGL 渲染与观测导出正常（若无头容器不支持 EGL，可改用 `Xvfb + GLX`）：
 
 ```bash
 python examples/libero/main.py \
@@ -192,46 +160,77 @@ python examples/libero/main.py \
   --args.debug_num_steps 5
 ```
 
-检查环境 reset/step、原始 RGB 图像导出和 EGL/图形库加载。若 EGL 在指定容器不可用，可以按所用图形环境排查，必要时评估 Xvfb/GLX 方案；这与“项目已经完成实验”的状态并不矛盾。
+### 2.3 RLDS 专家示范转换与数据字段规范
 
-## 6. 初始 SFT 训练
+#### 1. RLDS → LeRobot 格式转换
 
-**切回训练环境：**
+确认 `$WORK_ROOT/raw_libero_rlds` 下包含 `libero_10_no_noops`、`libero_goal_no_noops`、`libero_object_no_noops` 与 `libero_spatial_no_noops` 目录后，在**训练环境（`.venv`）**中运行转换：
+
+```bash
+source "$PROJECT_ROOT/.venv/bin/activate"
+python examples/libero/pistar_rlds_demo_processing.py \
+  --data_dir "$WORK_ROOT/raw_libero_rlds" \
+  --output_dir "$WORK_ROOT/lerobot_datasets" \
+  --repo_name libero_demo
+
+# 检查生成的元数据与分片文件
+ls "$WORK_ROOT/lerobot_datasets/libero_demo"
+find "$WORK_ROOT/lerobot_datasets/libero_demo/meta" -maxdepth 1 -type f
+```
+
+> **注意**：转换脚本默认开启 `--overwrite=true`，会覆盖同名输出目录；各任务实际转换的 Episode 数量以终端日志为准。
+
+#### 2. 核心数据字段与初始标签规则
+
+数据统一采用 LeRobotDataset 结构存储。由于合并脚本不会自动补列或转换图像布局，不同来源的数据必须对齐以下 Schema（另需 `timestamp`、`frame_index`、`episode_index`、`index`、`task_index` 索引字段）：
+
+| 字段 | 作用 | 专家 Demo vs. 自主 Rollout 的差异 |
+| :--- | :--- | :--- |
+| `image` / `wrist_image` | 主视角与腕部 RGB 图像 | 两者均需对齐分辨率与通道排布 |
+| `state` / `actions` | 机器人本体状态与监督动作目标 | 两者维度与单位保持一致 |
+| `intervention` | 示范/人工干预标记 | Demo 为 `1`，自主 Rollout 为 `0` |
+| `value_label` | VLM Value Model 训练监督信号 | 按轨迹成败及时间步规则生成 |
+| `reward` | 稀疏任务奖励 | 成功轨迹末帧为 `1`，其余为 `0` |
+| `reward_label` | N-step Advantage 累积奖励项 | 按轨迹步长规则构造 |
+| `adv_ind` | 优势条件文本标签（`positive` / `negative` / `none`） | Demo 固定为 `positive`，Rollout 初始为 `none` |
+
+对于长度为 $T$ 的成功专家 Demo，转换脚本按以下规则生成初始标签：
+
+```text
+intervention    = 1
+adv_ind         = "positive"
+value_label(t)  = -(T - 1 - t) / T
+reward(t)       = 1 (仅最后一帧 t = T - 1), 否则为 0
+reward_label(t) = -1 / T (非终止帧), 最后一帧为 0
+```
+
+---
+
+## 3. RECAP 闭环训练全流程
+
+### 3.1 阶段一：初始 SFT 训练
+
+统一通过 **`scripts/libero_pipeline.py`** 入口执行训练（运行时自动覆盖默认数据集与权重配置，无需修改上游 `config.py`）。以下示例中的 `--batch-size 4 --num-train-steps 5` 为快速验证流程的冒烟测试（Smoke Test）参数，正式训练请按需调大步数：
 
 ```bash
 cd "$PROJECT_ROOT"
 source .venv/bin/activate
-```
 
-### 6.1 核对训练配置
-
-现在推荐使用仓库已有的 **`scripts/libero_pipeline.py`** 统一入口。它在运行时覆盖上游 `config.py` 中的默认数据集标识和基础权重等字段，不需要直接修改该源码。
-
-```bash
 export SFT_DATA_ROOT="$WORK_ROOT/lerobot_datasets/libero_demo"
 export SFT_REPO_ID="local/libero_demo"
 export PI05_BASE="$WORK_ROOT/weights/pi05_base"
 
+# 1. Dry-run 配置检查（不加载数据与权重）
 python scripts/libero_pipeline.py train --stage sft \
   --dataset-root "$SFT_DATA_ROOT" --repo-id "$SFT_REPO_ID" \
   --init-checkpoint "$PI05_BASE" --exp-name sft_smoke \
   --batch-size 4 --num-train-steps 5 --save-interval 5 --dry-run
-```
 
-`--dry-run` 只显示配置，不读取数据或加载模型。需确保数据格式、逻辑 repo ID 和权重参数树与真实训练一致。
-
-### 6.2 归一化统计
-
-```bash
+# 2. 计算状态与动作归一化统计量
 python scripts/libero_pipeline.py norm --stage sft \
   --dataset-root "$SFT_DATA_ROOT" --repo-id "$SFT_REPO_ID"
-```
 
-检查归一化资产、机器人 state/action 维度及单位，避免训练/推理使用不同的 repo ID。
-
-### 6.3 SFT 启动
-
-```bash
+# 3. 启动初始 SFT 训练
 XLA_PYTHON_CLIENT_PREALLOCATE=false \
 python scripts/libero_pipeline.py train --stage sft \
   --dataset-root "$SFT_DATA_ROOT" --repo-id "$SFT_REPO_ID" \
@@ -239,23 +238,28 @@ python scripts/libero_pipeline.py train --stage sft \
   --batch-size 4 --num-train-steps 5 --save-interval 5
 ```
 
-## 7. 策略服务与初始评测
+### 3.2 阶段二：策略服务与自主 Rollout 采集
 
-### 7.1 启动策略服务（训练环境）
+#### 1. 启动策略推理服务（终端 1：训练环境 `.venv`）
 
 ```bash
 source "$PROJECT_ROOT/.venv/bin/activate"
+export SFT_CKPT_DIR="/path/to/sft_checkpoints/step_xxxxx"
+
 python scripts/libero_pipeline.py serve --stage sft \
   --repo-id "$SFT_REPO_ID" \
-  --checkpoint "/实际路径/SFT_训练输出/实际step目录" --port 8000
+  --checkpoint "$SFT_CKPT_DIR" \
+  --port 8000
+```
 
-### 7.2 启动客户端评测（另一个终端，LIBERO 环境）
+#### 2. 连接 LIBERO 客户端执行评测与 Rollout 采集（终端 2：仿真环境 `.venv-libero`）
 
 ```bash
 source "$PROJECT_ROOT/.venv-libero/bin/activate"
 export PYTHONPATH="$PROJECT_ROOT/third_party/libero:$PYTHONPATH"
 export MUJOCO_GL=egl
 
+# 初始 SFT 闭环评测
 python examples/libero/main.py \
   --args.host 127.0.0.1 \
   --args.port 8000 \
@@ -264,13 +268,8 @@ python examples/libero/main.py \
   --args.task_ids 0 \
   --args.num_trials_per_task 5 \
   --args.seed 7
-```
 
-## 8. 自主 Rollout 数据采集
-
-确保策略服务仍在运行，使用同一客户端脚本开启 LeRobot 保存功能：
-
-```bash
+# 开启 LeRobot 格式保存，采集策略自主 Rollout（包含成功与失败轨迹）
 python examples/libero/main.py \
   --args.host 127.0.0.1 \
   --args.port 8000 \
@@ -283,25 +282,21 @@ python examples/libero/main.py \
   --args.rollout_repo_id libero_rollout_round1
 ```
 
-## 9. 合并专家示范与 Rollout
+### 3.3 阶段三：混合数据与 VLM Value Model 训练
+
+切换回**训练环境（`.venv`）**，将原始专家示范与采集到的自主 Rollout 合并，并训练 VLM Value Model 预测状态价值 $V(o_t)$：
 
 ```bash
 source "$PROJECT_ROOT/.venv/bin/activate"
+
+# 1. 合并专家 Demo 与自主 Rollout 数据集
 python scripts/merge_datasets.py \
   --sources \
     "$WORK_ROOT/lerobot_datasets/libero_demo" \
     "$WORK_ROOT/lerobot_datasets/libero_rollout_round1" \
   --output "$WORK_ROOT/lerobot_datasets/libero_mixed_round1"
-```
 
-
-## 10. 训练 VLM Value Model
-
-Value Model 从图像与任务信息学习 `V(o_t)`，监督来源为 `value_label`。它用于给自主 Rollout 排序/打标签，**不是 LIBERO 环境的任务成功判定器**。
-
-先确认 Gemma tokenizer 文件存在，以及 Value 基础权重与模型配置兼容；优先使用小 batch 的短跑测试：
-
-```bash
+# 2. 训练 VLM Value Model（用于后续优势估计，不作为仿真成功判定器）
 python scripts/train_value.py \
   --data_dir "$WORK_ROOT/lerobot_datasets/libero_mixed_round1" \
   --checkpoint_dir "$WORK_ROOT/checkpoints/value_model/round1_smoke" \
@@ -314,26 +309,20 @@ python scripts/train_value.py \
   --tokenizer_path "$WORK_ROOT/weights/vlm_ckpt/tokenizer.model"
 ```
 
-## 11. N-step Advantage 标注
+### 3.4 阶段四：N-step Advantage 标注与 RECAP 再训练
 
-算法使用 Value Model 对 Rollout 估计 `V_t`，结合 `reward_label` 计算 N-step Advantage：
+#### 1. N-step Advantage 估计与 `adv_ind` 重标注
 
-```text
-A_t = Σ_{k=0}^{N-1} r_(t+k) + V_(t+N) − V_t
-```
+利用训练好的 Value Model 估计轨迹状态价值 $V_t$，结合 `reward_label` 计算前瞻 $N$ 步优势值（边界截断处理以脚本实现为准）：
 
-其中跨 Episode 或临近结束时的边界处理应以脚本实现为准。再按 Advantage 分位数划分 `positive` / `negative` 标签，示范或干预帧通常保留 `positive`。
+$$A_t = \sum_{k=0}^{N-1} r_{t+k} + V_{t+N} - V_t$$
 
-**重要：此步骤会修改数据集，先复制一份**：
+随后按 Advantage 分位数（如 `--top_percent 30`）将 Rollout 样本划分为 `positive` / `negative`，专家示范帧保持 `positive`。**由于标注脚本会原地修改数据集，执行前务必先完整备份：**
 
 ```bash
 cp -a "$WORK_ROOT/lerobot_datasets/libero_mixed_round1" \
       "$WORK_ROOT/lerobot_datasets/libero_mixed_round1_labeled"
-```
 
-配置好可用的 Value Checkpoint 后执行：
-
-```bash
 python scripts/label_advantage_from_vlm.py \
   --data_dir "$WORK_ROOT/lerobot_datasets/libero_mixed_round1_labeled" \
   --checkpoint_dir "$WORK_ROOT/checkpoints/value_model/round1" \
@@ -343,73 +332,51 @@ python scripts/label_advantage_from_vlm.py \
   --top_percent 30
 ```
 
-## 12. RECAP 风格策略再训练
-初始化权重应来自 SFT，而不是重新加载基础模型。
+#### 2. 基于 SFT 权重启动 RECAP 策略再训练
+
+RECAP 阶段必须从**已收敛的 SFT Checkpoint（`$SFT_CKPT_DIR`）**初始化，而非从基础权重重新微调：
 
 ```bash
 export RECAP_DATA_ROOT="$WORK_ROOT/lerobot_datasets/libero_mixed_round1_labeled"
 export RECAP_REPO_ID="local/libero_mixed_round1_labeled"
-export SFT_STEP="/实际路径/SFT_训练输出/实际step目录"
+export SFT_CKPT_DIR="/path/to/sft_checkpoints/step_xxxxx"
 
+# 重新统计混合数据集归一化参数
 python scripts/libero_pipeline.py norm --stage recap \
   --dataset-root "$RECAP_DATA_ROOT" --repo-id "$RECAP_REPO_ID"
 
+# 启动 Advantage-Conditioned SFT（RECAP 风格再训练）
+XLA_PYTHON_CLIENT_PREALLOCATE=false \
 python scripts/libero_pipeline.py train --stage recap \
   --dataset-root "$RECAP_DATA_ROOT" --repo-id "$RECAP_REPO_ID" \
-  --init-checkpoint "$SFT_STEP" --exp-name recap_smoke \
+  --init-checkpoint "$SFT_CKPT_DIR" --exp-name recap_smoke \
   --batch-size 4 --num-train-steps 5 --save-interval 5
 ```
 
+---
 
-## 13. LIBERO 对照评测与记录
+## 4. 评测规范与常见问题
 
-使用相同的任务、seed、Episode 数、相机与动作设置对比：
+### 4.1 LIBERO 统一评测协议
 
-- **Baseline**：第 6 节 SFT Checkpoint。
-- **RECAP-style**：第 12 节训练的 Checkpoint。
-- **Task Suites**：`libero_spatial`、`libero_object`、`libero_goal`、`libero_10`（每套件 10 个任务）。
-- **成功率**：`SR = 成功 Episode 数 / 评测 Episode 总数 × 100%`。
-- **汇总**：先算各套件平均，再算四套件宏平均；保留每任务统计，不只留一个总数。
+* **对照模型**：同等条件下对比 **SFT Baseline**（第 3.1 节）与 **RECAP-Style Checkpoint**（第 3.4 节）。
+* **评测规模**：覆盖 `libero_spatial`、`libero_object`、`libero_goal`、`libero_10` 四个套件（每套件 10 个任务），每任务运行 50 个 Episode，固定初始种子 `seed=7`（完整评测参数见 [eval_config.yaml](results/evaluation/eval_config.yaml)）。
+* **指标口径**：单任务成功率 $\text{SR} = \frac{\text{成功 Episode 数}}{\text{评测 Episode 总数}} \times 100\%$；先计算各套件 10 个任务的均值，再求四套件等权宏平均（Macro Average）。
 
-| 任务套件 | π₀.₅ SFT | SFT + RECAP 风格训练 | 提升 |
-| --- | ---: | ---: | ---: |
-| LIBERO-Spatial | 85.0% | 89.0% | +4.0 pp |
-| LIBERO-Object | 88.0% | 91.0% | +3.0 pp |
-| LIBERO-Goal | 84.0% | 88.0% | +4.0 pp |
-| LIBERO-10 | 68.0% | 77.0% | +9.0 pp |
-| **四套件宏平均** | **81.25%** | **86.25%** | **+5.0 pp** |
+### 4.2 常见问题排查（FAQ）
 
+| 常见现象 / 报错 | 排查与解决思路 |
+| :--- | :--- |
+| 找不到 `pistar_requirements.txt` | 训练环境已统一迁移至 `pyproject.toml`（使用 `uv sync` 安装），请勿引用旧依赖文件 |
+| 训练脚本仍读取默认旧数据集 | 优先使用 `scripts/libero_pipeline.py` 的 `--dataset-root` 与 `--repo-id` 显式覆盖默认配置 |
+| GCS / Hugging Face 下载超时 | 将权重提前下载至共享存储，核对 `tokenizer.model` 路径及权重分片完整性 |
+| `ModuleNotFoundError: libero` | 确认已激活 `.venv-libero`，检查 `third_party/libero` 安装及 `PYTHONPATH` 环境变量 |
+| EGL / MuJoCo 离屏渲染失败 | 检查宿主机 NVIDIA 驱动与 EGL 库；无 GPU 图形上下文时可切换 `Xvfb + GLX` 方案 |
+| Value 训练报 `KeyError: actions` | 核查 LeRobot 数据集 Schema；Value Model 训练仅读取图像与 `value_label`，不应请求 `actions` |
+| Value 模型在 Step 0 崩溃 | 检查主机可用内存、JAX 显存分配（`XLA_PYTHON_CLIENT_PREALLOCATE=false`）及 Gemma Tokenizer 版本 |
+| 合并后 Rollout 的 `adv_ind` 全为 `none` | 正常中间状态，须完整执行第 3.4 节的 `label_advantage_from_vlm.py` 完成重标注 |
+| RECAP 再训练后成功率无提升 | 检查 Value Model 是否过拟合、正负优势标签比例是否严重失衡以及评测时是否传入 `--args.adv_ind_input positive` |
 
-### 训练过程可视化
+### 4.3 许可证
 
-**π₀.₅ SFT Training Loss**
-
-![SFT Training Loss](results/figures/sft_loss.png)
-
-
-**RECAP Policy Training Loss**
-
-![RECAP Training Loss](results/figures/recap_loss.png)
-
-
-### LIBERO 评测配置
-
-评测协议采用四个 LIBERO 任务套件，每套件包含 10 个任务。建议每任务运行 50 个 Episode，并使用固定初始 Seed 7。SFT 和 RECAP 分别加载对应训练阶段的 Checkpoint，以一致的评测设置进行对照。
-
-详细参数见 [eval_config.yaml](results/evaluation/eval_config.yaml)。
-
-## 14. 常见问题
-
-| 问题 | 处理思路 |
-| --- | --- |
-| 找不到 `pistar_requirements.txt` | 本仓库按 `pyproject.toml` 安装；不要直接引用不存在的依赖文件 |
-| 训练配置仍读取旧数据集 | 优先通过 `scripts/libero_pipeline.py` 的 `--dataset-root` 与 `--repo-id` 显式覆盖；使用旧入口时才检查 `config.py` 默认值 |
-| GCS / Hugging Face 下载失败 | 将权重放在远程共享存储，检查 `weight_loader`、tokenizer 路径和文件完整性 |
-| `ModuleNotFoundError: libero` | 安装 LIBERO，检查 `third_party/libero` 及 `PYTHONPATH` |
-| EGL / MuJoCo 渲染失败 | 检查驱动、EGL 库和容器图形设备；必要时验证 Xvfb + GLX |
-| `KeyError: actions` | 核查 LeRobot schema；Value 数据加载不应错误地请求动作序列 |
-| Value 模型在 step 0 崩溃 | 先查主机 RAM、JAX 设备、Gemma tokenizer、模型权重和依赖版本 |
-| Rollout 仍是 `adv_ind=none` | 正常的初始状态；须执行第 11 节的 Advantage 重标注 |
-| RECAP 没有提升 | 查 Value 过拟合、标签分布、数据不平衡、Checkpoint 一致性与评测方差 |
-
-项目许可证 [LICENSE](LICENSE)。
+本项目遵循 [LICENSE](LICENSE) 开源许可证。

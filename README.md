@@ -44,11 +44,11 @@ https://github.com/user-attachments/assets/c0f2cece-82b4-41d0-98f2-1e90db5c2aff
 
 | 实验组 | 初始化权重 | 训练数据 | 微调方式 |
 | :--- | :--- | :--- | :--- |
-| **A：SFT 基线** | π₀.₅ Base | Expert Demonstrations | 全参数 SFT |
-| **B：Mixed-Data SFT（消融对照）** | A 的 SFT Checkpoint | Expert + 成功/失败 Rollout | 全参数 SFT（不启用 Advantage Conditioning） |
-| **C：RECAP** | A 的 SFT Checkpoint | 与 B 相同的混合数据 + Advantage 标签 | 全参数 Advantage-Conditioned SFT |
+| **A：SFT 基线** | π₀.₅ Base | Expert Demonstrations | 全参数 SFT（无 Advantage 条件） |
+| **B：Mixed-Data SFT（消融对照）** | A 的 SFT Checkpoint | Expert + 成功/失败 Rollout | 全参数 SFT（`--stage mixed_sft`，不启用 Advantage Conditioning） |
+| **C：RECAP** | A 的 SFT Checkpoint | 与 B 相同的混合数据 + Advantage 标签 | 全参数 Advantage-Conditioned SFT（`--stage recap`） |
 
-*三组实验用于区分新增 Rollout 数据与 Advantage Conditioning 的影响；B 是拟验证的消融对照，尚未提供可核验的实测结果。按当前代码的模型配置与默认参数冻结规则，SFT/RECAP 均采用全参数更新而非 LoRA。*
+*训练入口现按 `--stage sft / mixed_sft / recap` 分别控制 Advantage 文本条件：A/B 关闭，C 开启；三组保留相同的 `pistar=True` 模型架构和参数形状，不使用 LoRA。**相比此前默认条件化的 SFT 训练入口，这是行为变更；需要按新设置重新训练/评测才能形成严格对照。***
 
 > **示例数据说明：**除上面的实验组设计表外，本节后续**三张结果/统计表均为模拟/推测数据，并非实际评测或训练日志统计**，仅用于展示消融分析结构、统计口径与数值关系。此前项目报告的 A/C 原始汇总值保留在[项目状态记录](docs/PROJECT_STATE.md)中，不应将以下示例数值视为重新评测或修正后的实测结果。
 
@@ -137,7 +137,7 @@ LIBERO RLDS 专家示范
 ### 2.1 克隆仓库与权重准备
 
 ```bash
-git clone [https://github.com/giaoleng/openpi-recap-sim.git](https://github.com/giaoleng/openpi-recap-sim.git)
+git clone https://github.com/giaoleng/openpi-recap-sim.git
 cd openpi-recap-sim
 export PROJECT_ROOT="$PWD"
 export WORK_ROOT="/path/to/your/workspace"
@@ -171,14 +171,14 @@ python -c "import jax, flax, torch; print('JAX:', jax.__version__, 'Flax:', flax
 
 ```bash
 cd "$PROJECT_ROOT"
-git clone [https://github.com/Lifelong-Robot-Learning/LIBERO.git](https://github.com/Lifelong-Robot-Learning/LIBERO.git) third_party/libero
+git clone https://github.com/Lifelong-Robot-Learning/LIBERO.git third_party/libero
 git -C third_party/libero rev-parse HEAD  # 记录当前检出的 commit SHA
 
 uv venv --python 3.10 .venv-libero
 source .venv-libero/bin/activate
 uv pip install -e packages/openpi-client
 uv pip install -e third_party/libero
-uv pip install --no-deps git+[https://github.com/huggingface/lerobot@0cf864870cf29f4738d3ade893e6fd13fbd7cdb5](https://github.com/huggingface/lerobot@0cf864870cf29f4738d3ade893e6fd13fbd7cdb5)
+uv pip install --no-deps 'git+https://github.com/huggingface/lerobot@0cf864870cf29f4738d3ade893e6fd13fbd7cdb5'
 
 export PYTHONPATH="$PROJECT_ROOT/third_party/libero:$PYTHONPATH"
 export MUJOCO_GL=egl
@@ -299,7 +299,7 @@ export MUJOCO_GL=egl
 python examples/libero/main.py \
   --args.host 127.0.0.1 \
   --args.port 8000 \
-  --args.adv_ind_input positive \
+  --args.model_label sft \
   --args.task_suite_name libero_10 \
   --args.task_ids 0 \
   --args.num_trials_per_task 5 \
@@ -309,7 +309,7 @@ python examples/libero/main.py \
 python examples/libero/main.py \
   --args.host 127.0.0.1 \
   --args.port 8000 \
-  --args.adv_ind_input positive \
+  --args.model_label sft_rollout \
   --args.task_suite_name libero_10 \
   --args.task_ids 0 \
   --args.num_trials_per_task 10 \
@@ -389,15 +389,44 @@ python scripts/libero_pipeline.py train --stage recap \
   --batch-size 4 --num-train-steps 5 --save-interval 5
 ```
 
+#### 3. B 组：同一混合数据的无 Advantage SFT 消融
+
+B、C 均从**同一个 SFT Checkpoint** 开始，并使用**同一份已标注混合数据**；B 的 `--stage mixed_sft` 会忽略 `adv_ind` 文本条件，但保留 PiStar 模型结构和对应的损失函数。两组还需对齐 batch size、训练步数、随机种子及优化器参数。以下为 5-step 冒烟示例，正式消融应增大训练步数。
+
+```bash
+python scripts/libero_pipeline.py norm --stage mixed_sft \
+  --dataset-root "$RECAP_DATA_ROOT" --repo-id "$RECAP_REPO_ID"
+
+XLA_PYTHON_CLIENT_PREALLOCATE=false \
+python scripts/libero_pipeline.py train --stage mixed_sft \
+  --dataset-root "$RECAP_DATA_ROOT" --repo-id "$RECAP_REPO_ID" \
+  --init-checkpoint "$SFT_CKPT_DIR" --exp-name mixed_sft_smoke \
+  --batch-size 4 --num-train-steps 5 --save-interval 5
+```
+
+运行 B 的推理服务时使用 `serve --stage mixed_sft`，客户端不传 `--args.adv_ind_input`；运行 C 时使用 `serve --stage recap` 并指定 `--args.adv_ind_input positive`。A 组也不传该条件。
+
 ---
 
 ## 4. 评测规范与常见问题
 
 ### 4.1 LIBERO 统一评测协议
 
-* **对照模型**：同等条件下对比 **SFT Baseline**（第 3.1 节）与 **RECAP-Style Checkpoint**（第 3.4 节）。
+* **对照模型**：同任务、同初始状态下对比 A：SFT、B：Mixed-Data SFT、C：RECAP；B 与 C 使用相同数据及后训练预算。
 * **建议评测规模（非既有实测次数声明）**：覆盖 `libero_spatial`、`libero_object`、`libero_goal`、`libero_10` 四个套件（每套件 10 个任务），每任务建议运行 50 个 Episode，固定初始种子 `seed=7`（完整评测参数见 [eval_config.yaml](results/evaluation/eval_config.yaml)）。
-* **指标口径**：单任务成功率 $\text{SR} = \frac{\text{成功 Episode 数}}{\text{评测 Episode 总数}} \times 100\%$；先计算各套件 10 个任务的均值，再求四套件等权宏平均（Macro Average）。
+* **指标口径**：单任务成功率 = 成功 Episode / 有效 Episode（成功 + 正常失败）；异常 Episode 单独计为 `error`，不混作正常失败。出现错误时，本轮评测标记为未完成；四套件以等权宏平均汇总。
+* **可复核结果**：每次运行在 `results/evaluation/runs/` 生成独立的逐 Episode CSV 和汇总 JSON，包含初始状态索引、种子、步数、状态（`success/failure/error`）及视频文件路径。视频按模型、运行 ID、task、Episode 命名，避免覆盖；任务结束自动释放仿真环境。
+
+```bash
+# A/B 不加 --args.adv_ind_input；C 评测需添加 --args.adv_ind_input positive
+python examples/libero/main.py \
+  --args.host 127.0.0.1 --args.port 8000 \
+  --args.task_suite_name libero_spatial --args.num_trials_per_task 50 \
+  --args.model_label sft --args.seed 7 \
+  --args.eval_output_dir results/evaluation/runs \
+  --args.video_out_path outputs/libero/videos
+```
+
 
 ### 4.2 常见问题排查（FAQ）
 

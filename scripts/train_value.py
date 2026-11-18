@@ -22,6 +22,7 @@ if os.getenv("OPENPI_SILENCE_TF", "1") != "0":
 import argparse
 import dataclasses
 import functools
+import json
 import logging
 from pathlib import Path
 import platform
@@ -44,6 +45,7 @@ import tqdm_loggable.auto as tqdm
 
 from openpi.models import model as _model
 from openpi.models.value_model_config import ValueModelConfig
+from openpi.models import value_model as _value_model
 from openpi.shared import array_typing as at
 from openpi.shared import console
 from openpi.shared import progress
@@ -405,7 +407,16 @@ def eval_step(
 ) -> jnp.ndarray:
     model = nnx.merge(model_def, params)
     model.eval()
-    return model.compute_loss(rng, observation, target, train=False)
+    available_keys = list(observation.images.keys())
+    observation = _model.preprocess_observation(rng, observation, train=False, image_keys=available_keys)
+    logits = model(observation, train=False).astype(jnp.float32)
+    target_values = _value_model.normalize_value_target_shape(target)
+    target_dist = _value_model.target_to_twohot(target_values) if target_values.ndim == 1 else target_values
+    target_dist = target_dist.astype(jnp.float32)
+    ce = jnp.mean(-jnp.sum(target_dist * jax.nn.log_softmax(logits, axis=-1), axis=-1))
+    predicted = _value_model.dist_to_value(logits)
+    actual = jnp.sum(target_dist * _value_model.get_supports(), axis=-1)
+    return ce, predicted, actual
 
 
 def load_checkpoint(checkpoint_path: Path, state: TrainState) -> TrainState:
@@ -487,14 +498,27 @@ def validate_training_args(args):
     for name in ("batch_size", "num_train_steps", "log_interval", "save_interval"):
         if getattr(args, name) <= 0:
             raise ValueError(f"{name}必须为正数")
-    if args.val_data_dir and Path(args.data_dir).expanduser().resolve() == Path(args.val_data_dir).expanduser().resolve():
-        raise ValueError("Value训练集与验证集不能使用同一个根目录")
+    if not args.val_data_dir and not args.allow_no_val:
+        raise ValueError("正式Value训练必须传入--val_data_dir；仅冒烟测试可使用--allow_no_val")
+    if args.val_data_dir:
+        if args.val_interval <= 0:
+            raise ValueError("提供--val_data_dir时--val_interval必须大于0")
+        train_root = Path(args.data_dir).expanduser().resolve()
+        val_root = Path(args.val_data_dir).expanduser().resolve()
+        if train_root == val_root:
+            raise ValueError("Value训练集与验证集不能使用同一个根目录")
+        manifest = train_root.parent / "split_manifest.json"
+        if manifest.is_file() and train_root == manifest.parent / "train" and val_root == manifest.parent / "val":
+            split = json.loads(manifest.read_text(encoding="utf-8"))
+            if set(split["train_episode_ids"]) & set(split["val_episode_ids"]):
+                raise ValueError("Value训练集与验证集的Episode来源重叠")
 
 
 def main():
     parser = argparse.ArgumentParser(description="训练 Value Function")
     parser.add_argument("--data_dir", type=str, required=True, help="LeRobot 数据集路径")
-    parser.add_argument("--val_data_dir", type=str, default=None, help="可选的验证集路径")
+    parser.add_argument("--val_data_dir", type=str, default=None, help="正式训练必填：Episode级独立验证集")
+    parser.add_argument("--allow_no_val", action="store_true", help="仅冒烟测试允许跳过验证集")
     parser.add_argument("--checkpoint_dir", type=str, required=True, help="Checkpoint 保存路径")
     parser.add_argument("--batch_size", type=int, default=32, help="Batch size")
     parser.add_argument("--num_train_steps", type=int, default=30000, help="训练步数")
@@ -847,12 +871,21 @@ def main():
     data_iter = iter(data_loader)
     prefetch_idx = 0
 
+    def _average_ranks(values: np.ndarray) -> np.ndarray:
+        ordered = np.sort(values)
+        return (
+            np.searchsorted(ordered, values, side="left")
+            + np.searchsorted(ordered, values, side="right") - 1
+        ) / 2.0
+
     def run_validation(step: int) -> None:
         if val_loader is None:
             return
 
         params_for_eval = train_state.ema_params if train_state.ema_params is not None else train_state.params
         val_losses: list[float] = []
+        val_predictions: list[np.ndarray] = []
+        val_targets: list[np.ndarray] = []
         val_iter = iter(val_loader)
 
         logging.info(console.info(f"开始验证: step={step}, batches={val_num_batches}"))
@@ -860,7 +893,7 @@ def main():
             val_observation, val_value = next(val_iter)
             eval_rng = jax.random.fold_in(train_rng, step * 10_000 + val_batch_idx)
             with sharding.set_mesh(mesh):
-                val_loss = jit_eval_step(
+                val_loss, predicted, actual = jit_eval_step(
                     params_for_eval,
                     train_state.model_def,
                     eval_rng,
@@ -868,16 +901,28 @@ def main():
                     val_value,
                 )
             val_losses.append(float(jax.device_get(val_loss)))
+            val_predictions.append(np.asarray(jax.device_get(predicted)).reshape(-1))
+            val_targets.append(np.asarray(jax.device_get(actual)).reshape(-1))
 
         mean_val_loss = float(np.mean(val_losses))
-        pbar.write(f"Step {step}: val_cross_entropy={mean_val_loss:.4f}")
+        pred_all = np.concatenate(val_predictions)
+        target_all = np.concatenate(val_targets)
+        mae = float(np.mean(np.abs(pred_all - target_all)))
+        pred_rank = _average_ranks(pred_all)
+        target_rank = _average_ranks(target_all)
+        spearman = (
+            float(np.corrcoef(pred_rank, target_rank)[0, 1])
+            if np.std(pred_rank) > 0 and np.std(target_rank) > 0 else None
+        )
+        pbar.write(
+            f"Step {step}: val_cross_entropy={mean_val_loss:.4f}, "
+            f"val_mae={mae:.4f}, val_spearman={spearman if spearman is not None else 'N/A'}"
+        )
         if wandb_run is not None:
-            wandb_run.log(
-                {
-                    "step": int(step),
-                    "val/cross_entropy": mean_val_loss,
-                }
-            )
+            metrics = {"step": int(step), "val/cross_entropy": mean_val_loss, "val/mae": mae}
+            if spearman is not None:
+                metrics["val/spearman"] = spearman
+            wandb_run.log(metrics)
 
     for step in pbar:
         progress.sync_pbar_color(pbar)
@@ -940,6 +985,8 @@ def main():
             logging.info(f"\033[1;44m保存检查点 - Step {completed_step}, Loss: {current_loss:.4f}\033[0m")
             save_checkpoint(train_state, checkpoint_dir, int(train_state.step))
 
+    if val_loader is not None and int(train_state.step) % args.val_interval != 0:
+        run_validation(int(train_state.step))
     save_checkpoint(train_state, checkpoint_dir, int(train_state.step))
     if wandb_run is not None:
         wandb_run.finish()

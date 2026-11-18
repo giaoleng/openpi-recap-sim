@@ -15,23 +15,29 @@ evaluation:
   success_metric: "successful_episodes / valid_episodes"
   invalid_episode_status: error  # 推理/环境异常独立统计；有error时本次评测标记为未完成
   eval_output_dir: results/evaluation/runs
+  save_videos: false        # 默认只保存CSV/JSON
+  required_run_metadata: [checkpoint_path, checkpoint_step, git_commit, libero_commit, action_horizon, adv_guidance_beta]
   matched_initial_conditions: true  # required when running comparison
 
 checkpoints:
   sft:
     stage: supervised_finetuning
     advantage_conditioning: false
+    guidance_beta: 1.0
     checkpoint_path: null     # insert existing checkpoint; not yet verified
     normalization_stats: null
   mixed_sft:
     stage: mixed_data_supervised_finetuning
     initialization: sft
     advantage_conditioning: false
+    guidance_beta: 1.0
     checkpoint_path: null     # B组需实际运行后填写
     normalization_stats: null
   recap:
     stage: advantage_conditioned_post_training
     advantage_conditioning: true
+    guidance_beta_baseline: 1.0  # B/C对照隔离文本条件化效果
+    guidance_beta_optional: 2.0  # C组内部的CFG额外消融
     initialization: sft
     checkpoint_path: null     # insert existing checkpoint; not yet verified
     normalization_stats: null

@@ -92,7 +92,7 @@ class EvaluationRecorder:
             "success_rate_all_attempts": counts["success"] / len(rows) if rows else None,
         }
 
-    def close(self) -> None:
+    def close(self, *, interrupted: bool = False) -> None:
         if self._closed:
             return
         self._file.close()
@@ -104,7 +104,8 @@ class EvaluationRecorder:
             "replan_steps": self.replan_steps,
             "csv_path": str(self.csv_path),
             "note": "success_rate_valid excludes errors; any errors make this run incomplete.",
-            "status": "incomplete_errors" if any(row["status"] == "error" for row in self.rows) else "completed",
+            "status": ("incomplete_errors" if any(row["status"] == "error" for row in self.rows)
+                       else "interrupted" if interrupted else "completed"),
             "total": self._stats(self.rows),
             "tasks": {str(task_id): self._stats([row for row in self.rows if row["task_id"] == task_id])
                       for task_id in task_ids},
@@ -114,5 +115,5 @@ class EvaluationRecorder:
     def __enter__(self) -> "EvaluationRecorder":
         return self
 
-    def __exit__(self, *_exc: object) -> None:
-        self.close()
+    def __exit__(self, exc_type: object, *_exc: object) -> None:
+        self.close(interrupted=exc_type is not None)

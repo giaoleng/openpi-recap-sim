@@ -430,11 +430,16 @@ def eval_libero(args: Args) -> None:
                         error=episode_error,
                         video_path=video_path,
                     )
-                    if rollout_writer is not None:
+                    if rollout_writer is not None and status != "error":
                         rollout_writer.save_episode(
                             steps=rollout_steps,
                             task=str(task_description),
                             success=status == "success",
+                        )
+                    elif rollout_writer is not None:
+                        logging.warning(
+                            "Skipping invalid rollout after inference/environment error: task=%d episode=%d",
+                            task_id, episode_idx,
                         )
 
                     valid_so_far = total_episodes - total_errors

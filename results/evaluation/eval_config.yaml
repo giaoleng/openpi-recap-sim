@@ -1,6 +1,6 @@
 experiment:
   name: pi05_sft_vs_recap_libero
-  type: proposed_evaluation_protocol
+  type: evaluation_protocol  # 协议配置，不等于已经执行的评测记录
   benchmark: LIBERO
 
 evaluation:
@@ -10,8 +10,8 @@ evaluation:
     - libero_goal
     - libero_10
   tasks_per_suite: 10
-  episodes_per_task: 50   # proposed: 500 episodes/suite/model
-  seed: 7                 # proposed, inspired by public LIBERO reproduction protocols
+  episodes_per_task: 50   # 10 tasks x 50 = 500 episodes/suite/model
+  seed: 7                 # 固定评测种子；实际运行情况以日志为准
   success_metric: "successful_episodes / completed_episodes"
   matched_initial_conditions: true  # required when running comparison
 

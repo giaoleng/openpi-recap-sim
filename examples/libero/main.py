@@ -275,7 +275,7 @@ def eval_libero(args: Args) -> None:
     pathlib.Path(args.video_out_path).mkdir(parents=True, exist_ok=True)
 
     if args.task_suite_name == "libero_spatial":
-        max_steps = 220  # longest training demo has 193 steps
+        max_steps = 280  # longest training demo has 193 steps; allow longer rollouts
     elif args.task_suite_name == "libero_object":
         max_steps = 280  # longest training demo has 254 steps
     elif args.task_suite_name == "libero_goal":

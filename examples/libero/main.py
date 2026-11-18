@@ -32,7 +32,9 @@ import dataclasses
 import logging
 import math
 import pathlib
+import re
 import shutil
+import subprocess
 from typing import Optional
 
 import imageio
@@ -79,8 +81,14 @@ class Args:
     # Utils
     #################################################################################################################
     video_out_path: str = "data/libero/videos"  # Path to save videos
+    save_videos: bool = False  # 全量评测默认只保存CSV/JSON；展示时显式开启
     eval_output_dir: str = "results/evaluation/runs"  # 每次运行单独生成 CSV + JSON
     model_label: str = "model"  # A/B/C 模型标识，写入结果文件名与 CSV
+    checkpoint_path: Optional[str] = None  # 评测用服务端Checkpoint路径（需显式填写）
+    checkpoint_step: Optional[int] = None  # 可选，未传时尝试从checkpoint目录名解析
+    action_horizon: Optional[int] = None  # 策略预测Action Horizon，需与服务端配置一致
+    git_commit: Optional[str] = None  # 不传则从LIBERO客户端仓库自动读取
+    libero_commit: Optional[str] = None  # 不传则从已安装的LIBERO源码自动读取
 
     #################################################################################################################
     # 可选：将 Rollout 保存为 LeRobot 数据集
@@ -262,6 +270,39 @@ class LiberoRolloutLeRobotWriter:
         return reward_labels
 
 
+def _git_revision(path: pathlib.Path) -> str | None:
+    """从本地检出的Git代码读取Commit；不可访问时返回None，不伪造版本。"""
+    try:
+        result = subprocess.run(
+            ["git", "-C", str(path), "rev-parse", "HEAD"],
+            capture_output=True, text=True, check=True, timeout=5,
+        )
+        sha = result.stdout.strip()
+        return sha if re.fullmatch(r"[0-9a-f]{40}", sha) else None
+    except (OSError, subprocess.CalledProcessError, subprocess.TimeoutExpired):
+        return None
+
+
+def _evaluation_provenance(args: Args) -> dict:
+    step = args.checkpoint_step
+    if step is None and args.checkpoint_path:
+        match = re.search(r"(?:step[_-]?)(\\d+)$", pathlib.Path(args.checkpoint_path).name)
+        if match:
+            step = int(match.group(1))
+    client_repo = pathlib.Path(__file__).resolve().parents[2]
+    libero_dir = pathlib.Path(benchmark.__file__).resolve().parent
+    return {
+        "checkpoint_path": args.checkpoint_path,
+        "checkpoint_step": step,
+        "git_commit": args.git_commit or _git_revision(client_repo),
+        "libero_commit": args.libero_commit or _git_revision(libero_dir),
+        "action_horizon": args.action_horizon,
+        "advantage_input": args.adv_ind_input,
+        "save_videos": args.save_videos,
+        "note": "Checkpoint和action_horizon需要和策略服务端确认；缺失字段保留null而不猜测。",
+    }
+
+
 def eval_libero(args: Args) -> None:
     if args.debug_raw_obs_only:
         _debug_libero_raw_obs(args)
@@ -276,7 +317,8 @@ def eval_libero(args: Args) -> None:
     num_tasks_in_suite = task_suite.n_tasks
     logging.info("Task suite: %s", args.task_suite_name)
 
-    pathlib.Path(args.video_out_path).mkdir(parents=True, exist_ok=True)
+    if args.save_videos:
+        pathlib.Path(args.video_out_path).mkdir(parents=True, exist_ok=True)
 
     if args.task_suite_name == "libero_spatial":
         max_steps = 280  # longest training demo has 193 steps; allow longer rollouts
@@ -312,6 +354,7 @@ def eval_libero(args: Args) -> None:
         seed=args.seed,
         max_steps=max_steps,
         replan_steps=args.replan_steps,
+        run_metadata=_evaluation_provenance(args),
     ) as recorder:
         total_episodes, total_successes, total_errors = 0, 0, 0
         logging.info("Recording evaluation to: %s", recorder.csv_path)
@@ -354,7 +397,8 @@ def eval_libero(args: Args) -> None:
                             wrist_img = image_tools.convert_to_uint8(
                                 image_tools.resize_with_pad(wrist_img_flipped, args.resize_size, args.resize_size)
                             )
-                            replay_images.append(img)
+                            if args.save_videos:
+                                replay_images.append(img)
                             obs_state = np.concatenate(
                                 (
                                     obs["robot0_eef_pos"],
@@ -412,7 +456,7 @@ def eval_libero(args: Args) -> None:
                         total_errors += 1
 
                     video_path = ""
-                    if replay_images:
+                    if args.save_videos and replay_images:
                         target = recorder.video_path(args.video_out_path, task_id, episode_idx, status)
                         try:
                             imageio.mimwrite(target, [np.asarray(x) for x in replay_images], fps=10)

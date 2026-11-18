@@ -26,12 +26,14 @@ class EvaluationRecorder:
     """每次评测创建唯一 CSV + JSON；异常单独记录，不混入普通失败。"""
 
     def __init__(self, *, output_dir: str, model_label: str, suite: str,
-                 seed: int, max_steps: int, replan_steps: int):
+                 seed: int, max_steps: int, replan_steps: int,
+                 run_metadata: dict | None = None):
         self.model = _safe_name(model_label)
         self.suite = _safe_name(suite)
         self.seed = int(seed)
         self.max_steps = int(max_steps)
         self.replan_steps = int(replan_steps)
+        self.run_metadata = dict(run_metadata or {})
         self.run_id = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%S_%fZ") + "_" + uuid.uuid4().hex[:8]
         prefix = f"{self.model}_{self.suite}_{self.run_id}"
         root = Path(output_dir)
@@ -102,6 +104,7 @@ class EvaluationRecorder:
             "run_id": self.run_id, "model": self.model, "suite": self.suite,
             "seed": self.seed, "max_steps": self.max_steps,
             "replan_steps": self.replan_steps,
+            "run_metadata": self.run_metadata,
             "csv_path": str(self.csv_path),
             "note": "success_rate_valid excludes errors; any errors make this run incomplete.",
             "status": ("incomplete_errors" if any(row["status"] == "error" for row in self.rows)

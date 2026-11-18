@@ -286,7 +286,7 @@ def _git_revision(path: pathlib.Path) -> str | None:
 def _evaluation_provenance(args: Args) -> dict:
     step = args.checkpoint_step
     if step is None and args.checkpoint_path:
-        match = re.search(r"(?:step[_-]?)(\\d+)$", pathlib.Path(args.checkpoint_path).name)
+        match = re.search(r"(?:step[_-]?)(\d+)$", pathlib.Path(args.checkpoint_path).name)
         if match:
             step = int(match.group(1))
     client_repo = pathlib.Path(__file__).resolve().parents[2]

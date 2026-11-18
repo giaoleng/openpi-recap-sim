@@ -115,6 +115,8 @@ class ModelTransformFactory(GroupFactory):
     default_prompt: str | None = None
     # If True, tokenizer will apply dropout to adv_ind during training
     adv_ind_dropout: bool = True
+    # 仅控制 Advantage 文本条件，不改变 PiStar 的模型架构和参数形状。
+    adv_ind_conditioning: bool = True
 
     def __call__(self, model_config: _model.BaseModelConfig) -> _transforms.Group:
         match model_config.model_type:
@@ -138,7 +140,7 @@ class ModelTransformFactory(GroupFactory):
                         _transforms.TokenizePrompt(
                             _tokenizer.PaligemmaTokenizer(model_config.max_token_len),
                             discrete_state_input=model_config.discrete_state_input,
-                            adv_ind_input=model_config.pistar,
+                            adv_ind_input=model_config.pistar and self.adv_ind_conditioning,
                             adv_ind_dropout=self.adv_ind_dropout,
                         ),
                         _transforms.PadStatesAndActions(model_config.action_dim),
@@ -348,6 +350,7 @@ class LeRobotLiberoDataConfig(DataConfigFactory):
 
     extra_delta_transform: bool = False
     adv_ind_dropout: bool = True # Set to True during training to apply adv_ind dropout in model transforms
+    adv_ind_conditioning: bool = True  # False for plain SFT with PiStar-compatible architecture
 
     @override
     def create(self, assets_dirs: pathlib.Path, model_config: _model.BaseModelConfig) -> DataConfig:
@@ -422,7 +425,10 @@ class LeRobotLiberoDataConfig(DataConfigFactory):
 
         # Model transforms include things like tokenizing the prompt and action targets
         # You do not need to change anything here for your own dataset.
-        model_transforms = ModelTransformFactory(adv_ind_dropout=self.adv_ind_dropout)(model_config)
+        model_transforms = ModelTransformFactory(
+            adv_ind_dropout=self.adv_ind_dropout,
+            adv_ind_conditioning=self.adv_ind_conditioning,
+        )(model_config)
 
         # We return all data transforms for training and inference. No need to change anything here.
         return dataclasses.replace(

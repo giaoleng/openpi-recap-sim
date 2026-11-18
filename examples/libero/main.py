@@ -291,11 +291,18 @@ def _evaluation_provenance(args: Args) -> dict:
             step = int(match.group(1))
     client_repo = pathlib.Path(__file__).resolve().parents[2]
     libero_dir = pathlib.Path(benchmark.__file__).resolve().parent
+    libero_revision = _git_revision(libero_dir)
+    # 若LIBERO以普通site-packages形式安装在本仓库的.venv里，
+    # git向上查找可能误读成本项目commit，必须避免这样的伪溯源。
+    if libero_dir.is_relative_to(client_repo) and not libero_dir.is_relative_to(
+        client_repo / "third_party" / "libero"
+    ):
+        libero_revision = None
     return {
         "checkpoint_path": args.checkpoint_path,
         "checkpoint_step": step,
         "git_commit": args.git_commit or _git_revision(client_repo),
-        "libero_commit": args.libero_commit or _git_revision(libero_dir),
+        "libero_commit": args.libero_commit or libero_revision,
         "action_horizon": args.action_horizon,
         "advantage_input": args.adv_ind_input,
         "save_videos": args.save_videos,

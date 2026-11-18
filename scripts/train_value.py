@@ -498,10 +498,11 @@ def validate_training_args(args):
     for name in ("batch_size", "num_train_steps", "log_interval", "save_interval"):
         if getattr(args, name) <= 0:
             raise ValueError(f"{name}必须为正数")
-    if not args.val_data_dir and not args.allow_no_val:
+    val_data_dir = getattr(args, "val_data_dir", None)
+    if not val_data_dir and not getattr(args, "allow_no_val", False):
         raise ValueError("正式Value训练必须传入--val_data_dir；仅冒烟测试可使用--allow_no_val")
-    if args.val_data_dir:
-        if args.val_interval <= 0:
+    if val_data_dir:
+        if getattr(args, "val_interval", 100) <= 0:
             raise ValueError("提供--val_data_dir时--val_interval必须大于0")
         train_root = Path(args.data_dir).expanduser().resolve()
         val_root = Path(args.val_data_dir).expanduser().resolve()

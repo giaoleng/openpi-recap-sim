@@ -5,6 +5,7 @@ from __future__ import annotations
 import argparse
 import dataclasses
 import json
+import math
 from pathlib import Path
 import sys
 
@@ -29,6 +30,8 @@ def parse_args(argv=None):
     p.add_argument('--seed', type=int, default=42)
     p.add_argument('--max-frames', type=int, default=None)
     p.add_argument('--port', type=int, default=8000)
+    p.add_argument('--adv-guidance-beta', type=float, default=2.0,
+                   help='RECAP推理的CFG系数：1=不引导，2=条件引导；A/B和训练阶段忽略此参数')
     p.add_argument('--resume', action='store_true')
     p.add_argument('--discrete-state-input', action=argparse.BooleanOptionalAction, default=False,
                    help='显式控制π0.5状态token；训练与推理必须保持一致')
@@ -50,6 +53,8 @@ def parse_args(argv=None):
         p.error('max-frames必须至少覆盖一个完整batch')
     if args.num_workers < 0 or (args.max_frames is not None and args.max_frames <= 0):
         p.error('num-workers必须非负，max-frames必须为正数')
+    if not math.isfinite(args.adv_guidance_beta) or args.adv_guidance_beta < 0:
+        p.error('adv-guidance-beta必须是非负有限数')
     if not 1 <= args.port <= 65535:
         p.error('port必须在1..65535范围')
     for label, value in [('repo-id', args.repo_id), ('exp-name', args.exp_name)]:
@@ -76,6 +81,8 @@ def describe(args):
         'fsdp_devices': args.fsdp_devices, 'seed': args.seed,
         'adv_ind_dropout': args.mode != 'serve' and args.stage == 'recap',
         'adv_ind_conditioning': args.stage == 'recap',
+        'adv_guidance_beta': (args.adv_guidance_beta if args.mode == 'serve' and args.stage == 'recap' else 1.0),
+        'adv_guidance_input': args.mode == 'serve' and args.stage == 'recap' and args.adv_guidance_beta != 1.0,
         'wandb_enabled': False, 'resume': args.resume,
         'discrete_state_input': args.discrete_state_input,
     }
@@ -116,11 +123,15 @@ def build_config(args):
         base_config=dataclasses.replace(base.data.base_config, local_data_dir=str(args.dataset_root) if args.dataset_root else None),
         adv_ind_dropout=args.mode != 'serve' and args.stage == 'recap',
         adv_ind_conditioning=args.stage == 'recap',
+        adv_guidance_input=args.mode == 'serve' and args.stage == 'recap' and args.adv_guidance_beta != 1.0,
     )
     changes = dict(
         name=f'pi05_star_libero_{args.stage}', data=data, exp_name=args.exp_name,
         # 保留 pistar=True 的相同参数形状；只在数据 Tokenizer 中关闭 A/B 的 Advantage 文本条件。
-        model=dataclasses.replace(base.model, discrete_state_input=args.discrete_state_input),
+        model=dataclasses.replace(
+            base.model, discrete_state_input=args.discrete_state_input,
+            adv_guidance_beta=(args.adv_guidance_beta if args.mode == 'serve' and args.stage == 'recap' else 1.0),
+        ),
         batch_size=args.batch_size, num_train_steps=args.num_train_steps,
         num_workers=args.num_workers, fsdp_devices=args.fsdp_devices, seed=args.seed,
         save_interval=args.save_interval, keep_period=None,

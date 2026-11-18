@@ -25,7 +25,15 @@ class EvaluationLoggingTests(unittest.TestCase):
 
     def test_csv_json_and_error_rate(self):
         with tempfile.TemporaryDirectory() as tmp:
-            with self.recorder(tmp) as r:
+            with module.EvaluationRecorder(
+                output_dir=tmp, model_label="Mixed SFT", suite="libero_spatial",
+                seed=7, max_steps=280, replan_steps=5,
+                run_metadata={
+                    "checkpoint_path": "/weights/sft/step_12000",
+                    "checkpoint_step": 12000, "git_commit": "a" * 40,
+                    "action_horizon": 15,
+                },
+            ) as r:
                 success_video = r.video_path(tmp, 0, 0, "success")
                 other_video = r.video_path(tmp, 0, 1, "failure")
                 self.assertNotEqual(success_video.name, other_video.name)
@@ -45,6 +53,8 @@ class EvaluationLoggingTests(unittest.TestCase):
             self.assertEqual(rows[0]["init_state_index"], "0")
             summary = json.loads(json_path.read_text(encoding="utf-8"))
             self.assertEqual(summary["status"], "incomplete_errors")
+            self.assertEqual(summary["run_metadata"]["checkpoint_step"], 12000)
+            self.assertEqual(summary["run_metadata"]["action_horizon"], 15)
             self.assertEqual(summary["total"]["successful"], 1)
             self.assertEqual(summary["total"]["failed"], 1)
             self.assertEqual(summary["total"]["errors"], 1)

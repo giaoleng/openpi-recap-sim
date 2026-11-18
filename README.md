@@ -40,11 +40,19 @@ https://github.com/user-attachments/assets/c0f2cece-82b4-41d0-98f2-1e90db5c2aff
 
 ### 1.2 四套件对照与消融实验结果
 
-> **示例数据说明：**本节以下**三张表均为模拟/推测数据，并非实际评测或训练日志统计**，仅用于展示消融分析结构、统计口径与数值关系。此前项目报告的 A/C 原始汇总值保留在[项目状态记录](docs/PROJECT_STATE.md)中，不应将以下示例数值视为重新评测或修正后的实测结果。
+#### 实验组设计与微调方式
+
+| 实验组 | 初始化权重 | 训练数据 | 微调方式 |
+| :--- | :--- | :--- | :--- |
+| **A：SFT 基线** | π₀.₅ Base | Expert Demonstrations | 全参数 SFT |
+| **B：Mixed-Data SFT（消融对照）** | A 的 SFT Checkpoint | Expert + 成功/失败 Rollout | 全参数 SFT（不启用 Advantage Conditioning） |
+| **C：RECAP** | A 的 SFT Checkpoint | 与 B 相同的混合数据 + Advantage 标签 | 全参数 Advantage-Conditioned SFT |
+
+*三组实验用于区分新增 Rollout 数据与 Advantage Conditioning 的影响；B 是拟验证的消融对照，尚未提供可核验的实测结果。按当前代码的模型配置与默认参数冻结规则，SFT/RECAP 均采用全参数更新而非 LoRA。*
+
+> **示例数据说明：**除上面的实验组设计表外，本节后续**三张结果/统计表均为模拟/推测数据，并非实际评测或训练日志统计**，仅用于展示消融分析结构、统计口径与数值关系。此前项目报告的 A/C 原始汇总值保留在[项目状态记录](docs/PROJECT_STATE.md)中，不应将以下示例数值视为重新评测或修正后的实测结果。
 
 #### ① A/B/C 消融结果（模拟示例）
-
-A：仅使用专家示范训练的 **SFT 基线**；B：从 SFT Checkpoint 出发、仅增加混合数据的 **Mixed-Data SFT**；C：从相同 SFT Checkpoint 出发、采用相同混合数据与 **Advantage Conditioning** 的 RECAP 风格后训练。
 
 | 任务套件 | A：SFT 基线（模拟） | B：混合数据 SFT（模拟） | C：RECAP（模拟） | C − A |
 | :--- | ---: | ---: | ---: | ---: |

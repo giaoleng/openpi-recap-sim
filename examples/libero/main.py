@@ -87,6 +87,7 @@ class Args:
     checkpoint_path: Optional[str] = None  # 评测用服务端Checkpoint路径（需显式填写）
     checkpoint_step: Optional[int] = None  # 可选，未传时尝试从checkpoint目录名解析
     action_horizon: Optional[int] = None  # 策略预测Action Horizon，需与服务端配置一致
+    adv_guidance_beta: Optional[float] = None  # 与RECAP服务端CFG beta保持一致，供实验对照记录
     git_commit: Optional[str] = None  # 不传则从LIBERO客户端仓库自动读取
     libero_commit: Optional[str] = None  # 不传则从已安装的LIBERO源码自动读取
 
@@ -305,6 +306,7 @@ def _evaluation_provenance(args: Args) -> dict:
         "libero_commit": args.libero_commit or libero_revision,
         "action_horizon": args.action_horizon,
         "advantage_input": args.adv_ind_input,
+        "adv_guidance_beta": args.adv_guidance_beta,
         "save_videos": args.save_videos,
         "note": "Checkpoint和action_horizon需要和策略服务端确认；缺失字段保留null而不猜测。",
     }

@@ -332,6 +332,7 @@ def eval_libero(args: Args) -> None:
                     rollout_steps = []
                     init_idx = episode_idx % num_initial_states
                     t = 0
+                    executed_actions = 0
                     done = False
                     episode_error = None
 
@@ -380,6 +381,7 @@ def eval_libero(args: Args) -> None:
 
                             action = action_plan.popleft()
                             obs, reward, done, info = env.step(action.tolist())
+                            executed_actions += 1
                             if rollout_writer is not None:
                                 rollout_steps.append(
                                     {
@@ -424,7 +426,7 @@ def eval_libero(args: Args) -> None:
                         episode_id=episode_idx,
                         init_state_index=init_idx,
                         status=status,
-                        steps=max(0, t - args.num_steps_wait + 1),
+                        steps=executed_actions,
                         error=episode_error,
                         video_path=video_path,
                     )

@@ -14,7 +14,7 @@ ROOT = Path(__file__).resolve().parents[1]
 def parse_args(argv=None):
     p = argparse.ArgumentParser(description=__doc__)
     p.add_argument('mode', choices=('norm', 'train', 'serve'))
-    p.add_argument('--stage', choices=('sft', 'recap'), required=True)
+    p.add_argument('--stage', choices=('sft', 'mixed_sft', 'recap'), required=True)
     p.add_argument('--dataset-root', type=Path)
     p.add_argument('--repo-id', required=True, help='逻辑数据集标识，与归一化资产ID保持一致')
     p.add_argument('--init-checkpoint', type=Path, help='train模式的基础/SFT checkpoint目录，包含params/')
@@ -74,7 +74,8 @@ def describe(args):
         'num_train_steps': args.num_train_steps, 'warmup_steps': args.warmup_steps,
         'save_interval': args.save_interval, 'num_workers': args.num_workers,
         'fsdp_devices': args.fsdp_devices, 'seed': args.seed,
-        'adv_ind_dropout': args.mode != 'serve',
+        'adv_ind_dropout': args.mode != 'serve' and args.stage == 'recap',
+        'adv_ind_conditioning': args.stage == 'recap',
         'wandb_enabled': False, 'resume': args.resume,
         'discrete_state_input': args.discrete_state_input,
     }
@@ -113,10 +114,12 @@ def build_config(args):
     data = dataclasses.replace(
         base.data, repo_id=args.repo_id,
         base_config=dataclasses.replace(base.data.base_config, local_data_dir=str(args.dataset_root) if args.dataset_root else None),
-        adv_ind_dropout=args.mode != 'serve',
+        adv_ind_dropout=args.mode != 'serve' and args.stage == 'recap',
+        adv_ind_conditioning=args.stage == 'recap',
     )
     changes = dict(
         name=f'pi05_star_libero_{args.stage}', data=data, exp_name=args.exp_name,
+        # 保留 pistar=True 的相同参数形状；只在数据 Tokenizer 中关闭 A/B 的 Advantage 文本条件。
         model=dataclasses.replace(base.model, discrete_state_input=args.discrete_state_input),
         batch_size=args.batch_size, num_train_steps=args.num_train_steps,
         num_workers=args.num_workers, fsdp_devices=args.fsdp_devices, seed=args.seed,

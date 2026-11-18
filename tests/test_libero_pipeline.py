@@ -27,6 +27,16 @@ class Pipeline(unittest.TestCase):
         self.assertEqual(spec['dataset_root'], '/datasets/mixed')
         self.assertFalse(spec['wandb_enabled'])
 
+    def test_stages_select_advantage_conditioning(self):
+        for stage in ('sft', 'mixed_sft'):
+            args = self.args(stage)
+            desc = mod.describe(args)
+            self.assertFalse(desc['adv_ind_conditioning'])
+            self.assertFalse(desc['adv_ind_dropout'])
+        desc = mod.describe(self.args('recap'))
+        self.assertTrue(desc['adv_ind_conditioning'])
+        self.assertTrue(desc['adv_ind_dropout'])
+
     def test_serve_disables_condition_dropout(self):
         args = mod.parse_args(['serve', '--stage', 'recap', '--repo-id', 'local/mixed', '--checkpoint', '/weights/recap'])
         self.assertFalse(mod.describe(args)['adv_ind_dropout'])
@@ -65,6 +75,7 @@ class Pipeline(unittest.TestCase):
             repo_id: str
             base_config: Data
             adv_ind_dropout: bool = True
+            adv_ind_conditioning: bool = True
         # replace() works on a generated dataclass containing the actual override names.
         args = self.args()
         fields = ['name','model','data','exp_name','batch_size','num_train_steps','num_workers','fsdp_devices','seed',
@@ -82,11 +93,18 @@ class Pipeline(unittest.TestCase):
             self.assertEqual(cfg.data.base_config.local_data_dir, '/datasets/mixed')
             self.assertEqual(cfg.data.repo_id, 'local/mixed')
             self.assertEqual(cfg.weight_loader, '/weights/sft/params')
+            self.assertTrue(cfg.data.adv_ind_conditioning)
             args.mode = 'serve'; cfg = mod.build_config(args)
             self.assertFalse(cfg.data.adv_ind_dropout)
             self.assertFalse(cfg.overwrite)
             args.discrete_state_input = True
             self.assertTrue(mod.build_config(args).model.discrete_state_input)
+            args.stage = 'mixed_sft'
+            cfg = mod.build_config(args)
+            self.assertFalse(cfg.data.adv_ind_conditioning)
+            self.assertFalse(cfg.data.adv_ind_dropout)
+            args.stage = 'sft'
+            self.assertFalse(mod.build_config(args).data.adv_ind_conditioning)
 
 
 if __name__ == '__main__': unittest.main()

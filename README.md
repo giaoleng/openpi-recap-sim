@@ -185,7 +185,7 @@ export MUJOCO_GL=egl
 export PYOPENGL_PLATFORM=egl
 ```
 
-> **依赖与 Docker 说明**：上述 Python 3.10 虚拟环境为首选配置；仓库另提供容器化脚本 `examples/libero/Dockerfile`（构建前需先在根目录克隆 `third_party/libero`，再运行 `docker build -f examples/libero/Dockerfile -t openpi-libero-py310 .`）。旧版 Python 3.8 方案 `Dockerfile.legacy` 与 `examples/libero/requirements.txt` 已弃用，请勿混入 Python 3.10 环境。
+> **依赖与 Docker 说明**：上述 Python 3.10 虚拟环境为首选配置；仓库另提供容器化脚本 `examples/libero/Dockerfile`（构建前需先在根目录克隆 `third_party/libero`，再运行 `docker build -f examples/libero/Dockerfile -t openpi-libero-py310 .`）。
 
 执行不加载策略模型的仿真快速检查，确认 EGL 渲染与观测导出正常（若无头容器不支持 EGL，可改用 `Xvfb + GLX`）：
 
@@ -318,19 +318,12 @@ python examples/libero/main.py \
 
 ### 3.3 阶段三：混合数据与 VLM Value Model 训练
 
-切换回**训练环境（`.venv`）**，将原始专家示范与采集到的自主 Rollout 合并，并训练 VLM Value Model 预测状态价值 $V(o_t)$：
+切换回**训练环境（`.venv`）**，先将原始专家示范与采集到的自主 Rollout 整理为同一份 LeRobot 数据集，再训练 VLM Value Model 预测状态价值 $V(o_t)$。**当前仓库尚未提供通用数据集合并脚本**，因此不提供无法执行的合并命令；合并工具需与安装的 LeRobot 版本匹配。合并后请检查 `meta/info.json`、Episode 数量，以及 `image`、`wrist_image`、`state`、`actions`、`intervention`、`value_label`、`reward`、`reward_label`、`adv_ind` 等字段。
 
 ```bash
 source "$PROJECT_ROOT/.venv/bin/activate"
 
-# 1. 合并专家 Demo 与自主 Rollout 数据集
-python scripts/merge_datasets.py \
-  --sources \
-    "$WORK_ROOT/lerobot_datasets/libero_demo" \
-    "$WORK_ROOT/lerobot_datasets/libero_rollout_round1" \
-  --output "$WORK_ROOT/lerobot_datasets/libero_mixed_round1"
-
-# 2. 训练 VLM Value Model（用于后续优势估计，不作为仿真成功判定器）
+# 训练 VLM Value Model（用于后续优势估计，不作为仿真成功判定器）
 python scripts/train_value.py \
   --data_dir "$WORK_ROOT/lerobot_datasets/libero_mixed_round1" \
   --checkpoint_dir "$WORK_ROOT/checkpoints/value_model/round1" \

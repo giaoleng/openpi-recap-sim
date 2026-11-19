@@ -1,75 +1,121 @@
-"""Compute normalization statistics for a configured local LeRobot dataset.
+# 中文导读：计算动作与状态的归一化统计。
+# 代码来自 ybpy/pistar；保留算法与运行参数。
+"""Compute normalization statistics for a config.
 
-The implementation uses this repository's OpenPI data-loader and normalization APIs.
+This script is used to compute the normalization statistics for a given config. It
+will compute the mean and standard deviation of the data in the dataset and save it
+to the config assets directory.
 """
-from __future__ import annotations
 
 import numpy as np
 import tqdm
 import tyro
 
-import openpi.shared.normalize as _normalize
+import openpi.models.model as _model
+import openpi.shared.normalize as normalize
 import openpi.training.config as _config
 import openpi.training.data_loader as _data_loader
-import openpi.transforms as _transforms
+import openpi.transforms as transforms
 
 
-class RemoveStrings(_transforms.DataTransformFn):
-    """Remove text fields that are not needed for state/action statistics."""
-
-    def __call__(self, sample: dict) -> dict:
-        return {key: value for key, value in sample.items() if not np.issubdtype(np.asarray(value).dtype, np.str_)}
+class RemoveStrings(transforms.DataTransformFn):
+    def __call__(self, x: dict) -> dict:
+        return {k: v for k, v in x.items() if not np.issubdtype(np.asarray(v).dtype, np.str_)}
 
 
-def compute_for_config(config: _config.TrainConfig, max_frames: int | None = None) -> None:
-    """Compute state/action statistics and save them under this config's asset directory."""
-    data_config = config.data.create(config.assets_dirs, config.model)
+def create_torch_dataloader(
+    data_config: _config.DataConfig,
+    action_horizon: int,
+    batch_size: int,
+    model_config: _model.BaseModelConfig,
+    num_workers: int,
+    max_frames: int | None = None,
+) -> tuple[_data_loader.Dataset, int]:
     if data_config.repo_id is None:
-        raise ValueError("The training data config must define repo_id.")
-    if data_config.rlds_data_dir is not None:
-        raise NotImplementedError("This helper currently supports the project's local LeRobot datasets, not RLDS.")
-
-    dataset = _data_loader.create_torch_dataset(data_config, config.model.action_horizon, config.model)
+        raise ValueError("Data config must have a repo_id")
+    dataset = _data_loader.create_torch_dataset(data_config, action_horizon, model_config)
     dataset = _data_loader.TransformedDataset(
         dataset,
         [
             *data_config.repack_transforms.inputs,
             *data_config.data_transforms.inputs,
+            # Remove strings since they are not supported by JAX and are not needed to compute norm stats.
             RemoveStrings(),
         ],
     )
-
     if max_frames is not None and max_frames < len(dataset):
-        num_batches = max_frames // config.batch_size
+        num_batches = max_frames // batch_size
         shuffle = True
     else:
-        num_batches = len(dataset) // config.batch_size
+        num_batches = len(dataset) // batch_size
         shuffle = False
-    if num_batches < 1:
-        raise ValueError("The dataset does not contain a complete batch for normalization.")
-
-    loader = _data_loader.TorchDataLoader(
+    data_loader = _data_loader.TorchDataLoader(
         dataset,
-        local_batch_size=config.batch_size,
-        num_workers=config.num_workers,
+        local_batch_size=batch_size,
+        num_workers=num_workers,
         shuffle=shuffle,
         num_batches=num_batches,
-        seed=config.seed,
     )
+    return data_loader, num_batches
 
-    keys = ("state", "actions")
-    stats = {key: _normalize.RunningStats() for key in keys}
-    for batch in tqdm.tqdm(loader, total=num_batches, desc="Computing normalization statistics"):
+
+def create_rlds_dataloader(
+    data_config: _config.DataConfig,
+    action_horizon: int,
+    batch_size: int,
+    max_frames: int | None = None,
+) -> tuple[_data_loader.Dataset, int]:
+    dataset = _data_loader.create_rlds_dataset(data_config, action_horizon, batch_size, shuffle=False)
+    dataset = _data_loader.IterableTransformedDataset(
+        dataset,
+        [
+            *data_config.repack_transforms.inputs,
+            *data_config.data_transforms.inputs,
+            # Remove strings since they are not supported by JAX and are not needed to compute norm stats.
+            RemoveStrings(),
+        ],
+        is_batched=True,
+    )
+    if max_frames is not None and max_frames < len(dataset):
+        num_batches = max_frames // batch_size
+    else:
+        # NOTE: this length is currently hard-coded for DROID.
+        num_batches = len(dataset) // batch_size
+    data_loader = _data_loader.RLDSDataLoader(
+        dataset,
+        num_batches=num_batches,
+    )
+    return data_loader, num_batches
+
+
+def compute_for_config(config: _config.TrainConfig, max_frames: int | None = None):
+    """接受显式配置，确保统计量与训练使用同一份本地数据和资产ID。"""
+    data_config = config.data.create(config.assets_dirs, config.model)
+
+    if data_config.rlds_data_dir is not None:
+        data_loader, num_batches = create_rlds_dataloader(
+            data_config, config.model.action_horizon, config.batch_size, max_frames
+        )
+    else:
+        data_loader, num_batches = create_torch_dataloader(
+            data_config, config.model.action_horizon, config.batch_size, config.model, config.num_workers, max_frames
+        )
+
+    keys = ["state", "actions"]
+    stats = {key: normalize.RunningStats() for key in keys}
+
+    for batch in tqdm.tqdm(data_loader, total=num_batches, desc="Computing stats"):
         for key in keys:
             stats[key].update(np.asarray(batch[key]))
 
-    norm_stats = {key: accumulator.get_statistics() for key, accumulator in stats.items()}
+    norm_stats = {key: stats.get_statistics() for key, stats in stats.items()}
+
     output_path = config.assets_dirs / data_config.repo_id
-    print(f"Writing normalization statistics to: {output_path}")
-    _normalize.save(output_path, norm_stats)
+    print(f"Writing stats to: {output_path}")
+    normalize.save(output_path, norm_stats)
 
 
-def main(config_name: str, max_frames: int | None = None) -> None:
+def main(config_name: str, max_frames: int | None = None):
     compute_for_config(_config.get_config(config_name), max_frames)
 
 

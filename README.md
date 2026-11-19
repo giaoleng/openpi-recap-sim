@@ -90,7 +90,7 @@ https://github.com/user-attachments/assets/c0f2cece-82b4-41d0-98f2-1e90db5c2aff
 | 失败 Rollout | 70,180 | 9,567 | 60,613 | 13.63% |
 | **合计** | **304,890** | **91,467** | **213,423** | **30.00%** |
 
-**这张表展示 B → C 如何利用帧级 Advantage 对同一批混合数据进行条件化训练。**PiStar 风格的标注不是按 Episode 成败整体打标签，而是先计算每个自主 Rollout 帧的 N-step Advantage，再从**全部自主帧**中选取排名前约 **30%** 标记为 Positive，其余标记为 Negative；专家示范默认保留 Positive，不计入本表。因此，成功轨迹也可能有 Negative 帧，而失败轨迹中的部分动作仍可能是 Positive。本次统计中，成功轨迹的 Positive 占比为 **34.89%**，失败轨迹为 **13.63%**，但失败轨迹仍有 **9,567 帧 Positive**。与不区分标签的 B 组不同，C 组保留正负两类样本进行条件化训练，并在推理时指定 Positive 条件，从而尝试偏向相对高 Advantage 的动作，**而不是直接删除所有失败轨迹**。需要注意，Positive 表示该批数据内 Advantage 相对较高，并不保证动作绝对正确；总体约 30% 的比例由阈值设定，**无法单独证明 Value Model 或 C 组有效**，仍需真实标签统计和 B/C 成功率对照。
+**这张表展示 B → C 如何利用帧级 Advantage 对同一批混合数据进行条件化训练。**优势标注不是按 Episode 成败整体打标签，而是先计算每个自主 Rollout 帧的 N-step Advantage，再从**全部自主帧**中选取排名前约 **30%** 标记为 Positive，其余标记为 Negative；专家示范默认保留 Positive，不计入本表。因此，成功轨迹也可能有 Negative 帧，而失败轨迹中的部分动作仍可能是 Positive。本次统计中，成功轨迹的 Positive 占比为 **34.89%**，失败轨迹为 **13.63%**，但失败轨迹仍有 **9,567 帧 Positive**。与不区分标签的 B 组不同，C 组保留正负两类样本进行条件化训练，并在推理时指定 Positive 条件，从而尝试偏向相对高 Advantage 的动作，**而不是直接删除所有失败轨迹**。需要注意，Positive 表示该批数据内 Advantage 相对较高，并不保证动作绝对正确；总体约 30% 的比例由阈值设定，**无法单独证明 Value Model 或 C 组有效**，仍需真实标签统计和 B/C 成功率对照。
 
 ### 1.3 RECAP 闭环学习流水线
 
@@ -389,7 +389,7 @@ python scripts/libero_pipeline.py train --stage recap \
 
 #### 3. B 组：无 Advantage 的混合数据 SFT
 
-B、C 均从上述**相同 SFT Checkpoint** 初始化，使用**同一份已标注混合数据**（B 读取数据但忽略 `adv_ind` 文本条件，C 使用 `adv_ind`）。其他训练参数尽量一致；下例均为 5-step 冒烟测试，不代表正式结果。
+B、C 均从上述**相同 SFT Checkpoint** 初始化，使用**同一份已标注混合数据**（B 读取数据但忽略 `adv_ind` 文本条件，C 使用 `adv_ind`）。其他训练参数尽量一致；下例使用 5 个训练步数演示命令参数；正式训练使用实际实验配置。
 
 ```bash
 python scripts/libero_pipeline.py norm --stage mixed_sft \
@@ -402,7 +402,7 @@ python scripts/libero_pipeline.py train --stage mixed_sft \
   --batch-size 4 --num-train-steps 5 --save-interval 5
 ```
 
-**推理条件：**A/B 启动策略服务时分别指定 `--stage sft`/`--stage mixed_sft`，LIBERO 客户端**不传** `--args.adv_ind_input`；C 使用 `--stage recap`，客户端传入 `--args.adv_ind_input positive`。三组未额外启用 Guidance β 推理扩展，保持上游默认推理计算路径。
+**推理条件：**A/B 启动策略服务时分别指定 `--stage sft`/`--stage mixed_sft`，LIBERO 客户端**不传** `--args.adv_ind_input`；C 使用 `--stage recap`，客户端传入 `--args.adv_ind_input positive`。三组均未额外启用 Guidance β 推理扩展。
 
 ---
 
@@ -418,7 +418,7 @@ python scripts/libero_pipeline.py train --stage mixed_sft \
 
 | 常见现象 / 报错 | 排查与解决思路 |
 | :--- | :--- |
-| 找不到 `pistar_requirements.txt` | 训练环境已统一迁移至 `pyproject.toml`（使用 `uv sync` 安装），请勿引用旧依赖文件 |
+| 找不到 旧版依赖文件 | 训练环境已统一迁移至 `pyproject.toml`（使用 `uv sync` 安装），请勿引用旧依赖文件 |
 | 训练脚本仍读取默认旧数据集 | 优先使用 `scripts/libero_pipeline.py` 的 `--dataset-root` 与 `--repo-id` 显式覆盖默认配置 |
 | GCS / Hugging Face 下载超时 | 将权重提前下载至共享存储，核对 `tokenizer.model` 路径及权重分片完整性 |
 | `ModuleNotFoundError: libero` | 确认已激活 `.venv-libero`，检查 `third_party/libero` 安装及 `PYTHONPATH` 环境变量 |

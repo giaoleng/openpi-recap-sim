@@ -48,7 +48,7 @@ https://github.com/user-attachments/assets/c0f2cece-82b4-41d0-98f2-1e90db5c2aff
 | **B：Mixed-Data SFT（消融对照）** | A 的 SFT Checkpoint | Expert + 成功/失败 Rollout | 全参数 SFT（不使用 Advantage 条件） |
 | **C：RECAP** | A 的 SFT Checkpoint | 与 B 相同的混合数据 + Advantage 标签 | 全参数 Advantage-Conditioned SFT |
 
-*基于上游 `ybpy/pistar` 的 `π₀.₅ + pistar=True` 训练结构：A/B/C 保持相同模型参数结构与 PiStar 时间加权 Flow Matching 损失，只切换 Advantage 文本条件。`--stage sft`（A）和 `--stage mixed_sft`（B）关闭该条件；`--stage recap`（C）启用。A 从 π₀.₅ Base 初始化，B/C 从**同一个 A 的 Checkpoint** 初始化，并使用**同一份混合数据**。这是一项有意区别于上游初始 SFT（原版使用 Positive 条件）的消融改动；旧权重需按新设置重新训练才可以严格对比。B 组尚无可核验实测结果。*
+A/B/C 使用相同的模型参数结构与训练损失，仅在训练数据组成和 Advantage 文本条件上进行区分。`--stage sft`（A）仅使用专家示范并关闭 Advantage 条件；`--stage mixed_sft`（B）使用专家示范与自主 Rollout 混合数据，但关闭 Advantage 条件；`--stage recap`（C）使用相同混合数据及 Advantage 标签。A 从 π₀.₅ Base 初始化，B/C 从同一个 A 组 SFT Checkpoint 初始化。
 
 > 以下结果为本项目实际训练与评测统计。A、B、C 三组的实验定义和数据组成见上表；成功率按对应套件的评测 Episode 统计。
 
@@ -204,7 +204,7 @@ python examples/libero/main.py \
 
 ```bash
 source "$PROJECT_ROOT/.venv/bin/activate"
-python examples/libero/pistar_rlds_demo_processing.py \
+python examples/libero/convert_libero_data_to_lerobot.py \
   --data_dir "$WORK_ROOT/raw_libero_rlds" \
   --output_dir "$WORK_ROOT/lerobot_datasets" \
   --repo_name libero_demo

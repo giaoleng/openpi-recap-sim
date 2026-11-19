@@ -5,7 +5,6 @@
 #
 # From repo root, after cloning LIBERO into third_party/libero:
 #   docker build -f examples/libero/Dockerfile -t openpi-libero-py310 .
-# For the historical Python 3.8 / CUDA 11.3 build see Dockerfile.legacy.
 
 FROM nvidia/cuda:12.2.2-cudnn8-runtime-ubuntu22.04@sha256:2d913b09e6be8387e1a10976933642c73c840c0b735f0bf3c28d97fc9bc422e0
 COPY --from=ghcr.io/astral-sh/uv:0.5.1 /uv /uvx /bin/

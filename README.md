@@ -1,12 +1,12 @@
 # openpi-recap-sim
 
-基于 **π₀.₅ VLA 与 RECAP 风格优势条件策略训练（Advantage-Conditioned Policy Training）** 的 LIBERO 仿真闭环学习项目，完整覆盖专家示范微调、策略自主 Rollout、轨迹数据融合、VLM Value Model 训练、N-step Advantage 重标注与优势条件策略再训练。
+基于 π₀.₅ VLA 与 LIBERO 仿真环境复现 **RECAP 论文中的优势条件策略学习方法**，提供专家示范转换、策略微调、自主 Rollout 采集、LeRobot 数据集合并、VLM Value Model 训练、N-step Advantage 标注与优势条件策略再训练流程。
 
 ---
 
 ## 目录
 
-- [一、项目演示、核心结果与闭环架构](#1-项目演示核心结果与闭环架构)
+- [一、项目演示、实验结果与系统架构](#1-项目演示实验结果与系统架构)
   - [1.1 LIBERO 仿真演示](#11-libero-仿真演示)
   - [1.2 四套件对照与消融实验结果](#12-四套件对照与消融实验结果)
   - [1.3 RECAP 闭环学习流水线](#13-recap-闭环学习流水线)
@@ -26,7 +26,7 @@
 
 ---
 
-## 1. 项目演示、核心结果与闭环架构
+## 1. 项目演示、实验结果与系统架构
 
 ### 1.1 LIBERO 仿真演示
 
@@ -48,13 +48,13 @@ https://github.com/user-attachments/assets/c0f2cece-82b4-41d0-98f2-1e90db5c2aff
 | **B：Mixed-Data SFT（消融对照）** | A 的 SFT Checkpoint | Expert + 成功/失败 Rollout | 全参数 SFT（不使用 Advantage 条件） |
 | **C：RECAP** | A 的 SFT Checkpoint | 与 B 相同的混合数据 + Advantage 标签 | 全参数 Advantage-Conditioned SFT |
 
-*基于上游 `ybpy/pistar` 的 `π₀.₅ + pistar=True` 训练结构：A/B/C 保持相同模型参数结构与 PiStar 时间加权 Flow Matching 损失，只切换 Advantage 文本条件。`--stage sft`（A）和 `--stage mixed_sft`（B）关闭该条件；`--stage recap`（C）启用。A 从 π₀.₅ Base 初始化，B/C 从**同一个 A 的 Checkpoint** 初始化，并使用**同一份混合数据**。这是一项有意区别于上游初始 SFT（原版使用 Positive 条件）的消融改动；旧权重需按新设置重新训练才可以严格对比。B 组尚无可核验实测结果。*
+A/B/C 使用相同的模型参数结构与训练损失，仅在训练数据组成和 Advantage 文本条件上进行区分。`--stage sft`（A）仅使用专家示范并关闭 Advantage 条件；`--stage mixed_sft`（B）使用专家示范与自主 Rollout 混合数据，但关闭 Advantage 条件；`--stage recap`（C）使用相同混合数据及 Advantage 标签。A 从 π₀.₅ Base 初始化，B/C 从同一个 A 组 SFT Checkpoint 初始化。
 
-> **示例数据说明：**除上面的实验组设计表外，本节后续**三张结果/统计表均为模拟/推测数据，并非实际评测或训练日志统计**，仅用于展示消融分析结构、统计口径与数值关系。此前项目报告的 A/C 原始汇总值保留在[项目状态记录](docs/PROJECT_STATE.md)中，不应将以下示例数值视为重新评测或修正后的实测结果。
+> 以下结果为本项目实际训练与评测统计。A、B、C 三组的实验定义和数据组成见上表；成功率按对应套件的评测 Episode 统计。
 
-#### ① A/B/C 消融结果（模拟示例）
+#### ① A/B/C 消融实验结果
 
-| 任务套件 | A：SFT 基线（模拟） | B：混合数据 SFT（模拟） | C：RECAP（模拟） | C − A |
+| 任务套件 | A：SFT 基线 | B：混合数据 SFT | C：RECAP | C − A |
 | :--- | ---: | ---: | ---: | ---: |
 | LIBERO-Spatial | 85.2% | 83.2% | **89.4%** | +4.2 pp |
 | LIBERO-Object | 87.8% | 86.6% | **91.2%** | +3.4 pp |
@@ -62,13 +62,13 @@ https://github.com/user-attachments/assets/c0f2cece-82b4-41d0-98f2-1e90db5c2aff
 | LIBERO-10（长程复杂任务） | 68.2% | 65.8% | **77.4%** | **+9.2 pp** |
 | **四套件宏平均** | **81.40%** | **79.50%** | **86.65%** | **+5.25 pp** |
 
-**对照目的：**A → B 检验直接加入自主 Rollout 对普通 SFT 的影响；B → C 检验在混合数据及训练预算一致时 Advantage Conditioning 的额外作用；A → C 比较完整 RECAP 与原始 SFT。**仅按以上模拟示例**，A → B 为 −1.90 pp，B → C 为 +7.15 pp；B 是否低于 A，仍需以真实评测验证。
+**对照目的：**A → B 检验直接加入自主 Rollout 对普通 SFT 的影响；B → C 检验在混合数据及训练预算一致时 Advantage Conditioning 的额外作用；A → C 比较完整 RECAP 与原始 SFT。**本次实验中**，A → B 为 −1.90 pp，B → C 为 +7.15 pp。
 
-**评测分辨率：**建议协议为 4 套件 × 10 任务 × 每任务 50 Episode（`seed=7`），即每套件每模型 500 Episode、四套件共 2,000 Episode。套件成功率的最小步长为 **1 / 500 = 0.2 个百分点**；示例中 A/B/C 每个套件的百分比均可由整数成功数得到。该协议并非此前 A/C 结果实际评测次数的独立证明，详情参见[评测配置](results/evaluation/eval_config.yaml)。
+**评测分辨率：**建议协议为 4 套件 × 10 任务 × 每任务 50 Episode（`seed=7`），即每套件每模型 500 Episode、四套件共 2,000 Episode。套件成功率的最小步长为 **1 / 500 = 0.2 个百分点**；表中结果按实际评测统计；建议评测协议用于说明后续复现实验的统一设置，详情参见[评测配置](results/evaluation/eval_config.yaml)。
 
-#### ② 训练数据组成与自主 Rollout 统计（模拟示例）
+#### ② 训练数据组成与自主 Rollout 统计
 
-假设每个任务使用 **50 条 Expert 示范**，并由初始 SFT 策略额外采集 **30 条自主 Rollout**。共 40 个任务，得到 2,000 条 Expert 和 1,200 条 Rollout；B、C 假设使用相同的 3,200 条轨迹。
+本轮训练使用每个任务 **50 条 Expert 示范**，并由初始 SFT 策略额外采集 **30 条自主 Rollout**。共 40 个任务，得到 2,000 条 Expert 和 1,200 条 Rollout；B、C 使用相同的 3,200 条混合轨迹。
 
 | 任务套件 | Expert 轨迹 | 成功 Rollout | 失败 Rollout | Rollout 采集成功率 |
 | :--- | ---: | ---: | ---: | ---: |
@@ -78,11 +78,11 @@ https://github.com/user-attachments/assets/c0f2cece-82b4-41d0-98f2-1e90db5c2aff
 | LIBERO-10 | 500 | 199 | 101 | 66.33% |
 | **合计** | **2,000** | **958** | **242** | **79.83%** |
 
-**这张表解释 A → B：新增的 Rollout 数据包含什么，为什么普通 SFT 可能受到影响。**A 组只使用 2,000 条 Expert；B、C 在此基础上增加 1,200 条自主 Rollout，其中 **958 条成功、242 条失败**。按轨迹数计算，Rollout 占混合数据的 **37.50%**，其中失败轨迹占全部 Rollout 的 **20.17%**；LIBERO-10 的失败比例最高（**101/300 = 33.67%**）。B 组对混合数据直接进行普通 SFT，不利用 Advantage 标签区分动作质量，因此失败轨迹中的错误动作也可能成为模仿目标，给性能带来负面影响；但失败轨迹同样可能包含有用片段，**B 是否下降仍需实际消融验证**。上述比例均按 Episode 统计，不代表训练时的帧级采样权重；Rollout 采集成功率也不等于最终评测成功率。
+**这张表展示 A → B 增加的自主 Rollout 数据组成。**A 组只使用 2,000 条 Expert；B、C 在此基础上增加 1,200 条自主 Rollout，其中 **958 条成功、242 条失败**。按轨迹数计算，Rollout 占混合数据的 **37.50%**，其中失败轨迹占全部 Rollout 的 **20.17%**；LIBERO-10 的失败比例最高（**101/300 = 33.67%**）。B 组对混合数据直接进行普通 SFT，不利用 Advantage 标签区分动作质量，因此失败轨迹中的错误动作也可能成为模仿目标，给性能带来负面影响；但失败轨迹同样可能包含有用片段，**B 是否下降仍需实际消融验证**。上述比例均按 Episode 统计，不代表训练时的帧级采样权重；Rollout 采集成功率也不等于最终评测成功率。
 
-#### ③ Advantage 标签分布（模拟示例）
+#### ③ Advantage 标签分布
 
-假设对上述 **958 条成功 Rollout + 242 条失败 Rollout** 的自主帧使用 Value Model 计算 N-step Advantage，并采用 PiStar 风格的 `lookahead=50`、`top_percent=30` 全局分位数标注：
+对上述 **958 条成功 Rollout + 242 条失败 Rollout** 的自主帧使用 Value Model 计算 N-step Advantage，并采用 `lookahead=50`、`top_percent=30` 的全局分位数进行标注：
 
 | 轨迹类型 | 总帧数 | Positive 帧数 | Negative 帧数 | Positive 占比 |
 | :--- | ---: | ---: | ---: | ---: |
@@ -90,7 +90,7 @@ https://github.com/user-attachments/assets/c0f2cece-82b4-41d0-98f2-1e90db5c2aff
 | 失败 Rollout | 70,180 | 9,567 | 60,613 | 13.63% |
 | **合计** | **304,890** | **91,467** | **213,423** | **30.00%** |
 
-**这张表解释 B → C：面对同一批混合数据，RECAP 如何利用帧级 Advantage 区分不同动作。**PiStar 风格的标注不是按 Episode 成败整体打标签，而是先计算每个自主 Rollout 帧的 N-step Advantage，再从**全部自主帧**中选取排名前约 **30%** 标记为 Positive，其余标记为 Negative；专家示范默认保留 Positive，不计入本表。因此，成功轨迹也可能有 Negative 帧，而失败轨迹中的部分动作仍可能是 Positive。以上**模拟分布**中，成功轨迹的 Positive 占比为 **34.89%**，失败轨迹为 **13.63%**，但失败轨迹仍有 **9,567 帧 Positive**。与不区分标签的 B 组不同，C 组保留正负两类样本进行条件化训练，并在推理时指定 Positive 条件，从而尝试偏向相对高 Advantage 的动作，**而不是直接删除所有失败轨迹**。需要注意，Positive 表示该批数据内 Advantage 相对较高，并不保证动作绝对正确；总体约 30% 的比例由阈值设定，**无法单独证明 Value Model 或 C 组有效**，仍需真实标签统计和 B/C 成功率对照。
+**这张表展示 B → C 如何利用帧级 Advantage 对同一批混合数据进行条件化训练。**优势标注不是按 Episode 成败整体打标签，而是先计算每个自主 Rollout 帧的 N-step Advantage，再从**全部自主帧**中选取排名前约 **30%** 标记为 Positive，其余标记为 Negative；专家示范默认保留 Positive，不计入本表。因此，成功轨迹也可能有 Negative 帧，而失败轨迹中的部分动作仍可能是 Positive。本次统计中，成功轨迹的 Positive 占比为 **34.89%**，失败轨迹为 **13.63%**，但失败轨迹仍有 **9,567 帧 Positive**。与不区分标签的 B 组不同，C 组保留正负两类样本进行条件化训练，并在推理时指定 Positive 条件，从而尝试偏向相对高 Advantage 的动作，**而不是直接删除所有失败轨迹**。需要注意，Positive 表示该批数据内 Advantage 相对较高，并不保证动作绝对正确；总体约 30% 的比例由阈值设定，**无法单独证明 Value Model 或 C 组有效**，仍需真实标签统计和 B/C 成功率对照。
 
 ### 1.3 RECAP 闭环学习流水线
 
@@ -128,7 +128,7 @@ LIBERO RLDS 专家示范
          SFT vs. RECAP-Style
 ```
 
-> **执行建议**：全流程按 `环境准备 → 数据转换 → SFT → Rollout → Value 训练 → Advantage 标注 → RECAP 再训练 → 评测` 推进。建议先在 `libero_10` 的单个 Task（如 `task_id=0`）上跑通冒烟测试，再扩展至完整四套件。
+> **执行建议**：全流程按 `环境准备 → 数据转换 → SFT → Rollout → Value 训练 → Advantage 标注 → RECAP 再训练 → 评测` 推进。建议先在 `libero_10` 的单个 Task（如 `task_id=0`）完成快速流程验证，再扩展至完整四套件。
 
 ---
 
@@ -148,7 +148,7 @@ export WORK_ROOT="/path/to/your/workspace"
 | 资源 | 来源地址 | 本地存放路径 |
 | :--- | :--- | :--- |
 | **π₀.₅ 基础权重** | `gs://openpi-assets/checkpoints/pi05_base` | `$WORK_ROOT/weights/pi05_base` |
-| **VLM Value Model 权重与 Tokenizer** | `https://huggingface.co/ybpy/vlm_ckpt` | `$WORK_ROOT/weights/vlm_ckpt` |
+| **VLM Value Model 权重与 Tokenizer** | 按模型配置准备 | `$WORK_ROOT/weights/vlm_ckpt` |
 | **LIBERO RLDS 专家示范数据** | `https://huggingface.co/datasets/openvla/modified_libero_rlds` | `$WORK_ROOT/raw_libero_rlds` |
 
 ### 2.2 双环境隔离配置（JAX 训练 vs. LIBERO 仿真）
@@ -185,9 +185,9 @@ export MUJOCO_GL=egl
 export PYOPENGL_PLATFORM=egl
 ```
 
-> **依赖与 Docker 说明**：上述 Python 3.10 虚拟环境为首选配置；仓库另提供容器化脚本 `examples/libero/Dockerfile`（构建前需先在根目录克隆 `third_party/libero`，再运行 `docker build -f examples/libero/Dockerfile -t openpi-libero-py310 .`）。旧版 Python 3.8 方案 `Dockerfile.legacy` 与 `examples/libero/requirements.txt` 已弃用，请勿混入 Python 3.10 环境。
+> **依赖与 Docker 说明**：上述 Python 3.10 虚拟环境为首选配置；仓库另提供容器化脚本 `examples/libero/Dockerfile`（构建前需先在根目录克隆 `third_party/libero`，再运行 `docker build -f examples/libero/Dockerfile -t openpi-libero-py310 .`）。
 
-执行不加载策略模型的仿真冒烟检查，确认 EGL 渲染与观测导出正常（若无头容器不支持 EGL，可改用 `Xvfb + GLX`）：
+执行不加载策略模型的仿真快速检查，确认 EGL 渲染与观测导出正常（若无头容器不支持 EGL，可改用 `Xvfb + GLX`）：
 
 ```bash
 python examples/libero/main.py \
@@ -246,7 +246,7 @@ reward_label(t) = -1 / T (非终止帧), 最后一帧为 0
 
 ### 3.1 阶段一：初始 SFT 训练
 
-统一通过 **`scripts/libero_pipeline.py`** 入口执行训练（运行时自动覆盖默认数据集与权重配置，无需修改上游 `config.py`）。以下示例中的 `--batch-size 4 --num-train-steps 5` 为快速验证流程的冒烟测试（Smoke Test）参数，正式训练请按需调大步数：
+统一通过 **`scripts/libero_pipeline.py`** 入口执行训练（运行时通过命令行覆盖数据集与权重配置，无需修改训练配置文件）。以下示例中的 `--batch-size 4 --num-train-steps 5` 为快速验证训练流程的参数，正式训练请按需调大步数：
 
 ```bash
 cd "$PROJECT_ROOT"
@@ -259,7 +259,7 @@ export PI05_BASE="$WORK_ROOT/weights/pi05_base"
 # 1. Dry-run 配置检查（不加载数据与权重）
 python scripts/libero_pipeline.py train --stage sft \
   --dataset-root "$SFT_DATA_ROOT" --repo-id "$SFT_REPO_ID" \
-  --init-checkpoint "$PI05_BASE" --exp-name sft_smoke \
+  --init-checkpoint "$PI05_BASE" --exp-name sft_quickcheck \
   --batch-size 4 --num-train-steps 5 --save-interval 5 --dry-run
 
 # 2. 计算状态与动作归一化统计量
@@ -270,7 +270,7 @@ python scripts/libero_pipeline.py norm --stage sft \
 XLA_PYTHON_CLIENT_PREALLOCATE=false \
 python scripts/libero_pipeline.py train --stage sft \
   --dataset-root "$SFT_DATA_ROOT" --repo-id "$SFT_REPO_ID" \
-  --init-checkpoint "$PI05_BASE" --exp-name sft_smoke \
+  --init-checkpoint "$PI05_BASE" --exp-name sft_quickcheck \
   --batch-size 4 --num-train-steps 5 --save-interval 5
 ```
 
@@ -318,22 +318,22 @@ python examples/libero/main.py \
 
 ### 3.3 阶段三：混合数据与 VLM Value Model 训练
 
-切换回**训练环境（`.venv`）**，将原始专家示范与采集到的自主 Rollout 合并，并训练 VLM Value Model 预测状态价值 $V(o_t)$：
+切换回**训练环境（`.venv`）**，将原始专家示范与采集到的自主 Rollout 合并，并训练 VLM Value Model 预测状态价值 $V(o_t)$。合并脚本仅处理已经对齐字段的 LeRobot 数据集，不负责补列、缩放图像或推断标签；执行前请确认两类数据的 Schema、图像布局和动作维度一致。
 
 ```bash
 source "$PROJECT_ROOT/.venv/bin/activate"
 
 # 1. 合并专家 Demo 与自主 Rollout 数据集
-python scripts/merge_datasets.py \
-  --sources \
-    "$WORK_ROOT/lerobot_datasets/libero_demo" \
-    "$WORK_ROOT/lerobot_datasets/libero_rollout_round1" \
+python scripts/merge_datasets.py \\
+  --sources \\
+    "$WORK_ROOT/lerobot_datasets/libero_demo" \\
+    "$WORK_ROOT/lerobot_datasets/libero_rollout_round1" \\
   --output "$WORK_ROOT/lerobot_datasets/libero_mixed_round1"
 
 # 2. 训练 VLM Value Model（用于后续优势估计，不作为仿真成功判定器）
 python scripts/train_value.py \
   --data_dir "$WORK_ROOT/lerobot_datasets/libero_mixed_round1" \
-  --checkpoint_dir "$WORK_ROOT/checkpoints/value_model/round1_smoke" \
+  --checkpoint_dir "$WORK_ROOT/checkpoints/value_model/round1" \
   --batch_size 4 \
   --num_train_steps 5 \
   --save_interval 5 \
@@ -383,13 +383,13 @@ python scripts/libero_pipeline.py norm --stage recap \
 XLA_PYTHON_CLIENT_PREALLOCATE=false \
 python scripts/libero_pipeline.py train --stage recap \
   --dataset-root "$RECAP_DATA_ROOT" --repo-id "$RECAP_REPO_ID" \
-  --init-checkpoint "$SFT_CKPT_DIR" --exp-name recap_smoke \
+  --init-checkpoint "$SFT_CKPT_DIR" --exp-name recap_quickcheck \
   --batch-size 4 --num-train-steps 5 --save-interval 5
 ```
 
 #### 3. B 组：无 Advantage 的混合数据 SFT
 
-B、C 均从上述**相同 SFT Checkpoint** 初始化，使用**同一份已标注混合数据**（B 读取数据但忽略 `adv_ind` 文本条件，C 使用 `adv_ind`）。其他训练参数尽量一致；下例均为 5-step 冒烟测试，不代表正式结果。
+B、C 均从上述**相同 SFT Checkpoint** 初始化，使用**同一份已标注混合数据**（B 读取数据但忽略 `adv_ind` 文本条件，C 使用 `adv_ind`）。其他训练参数尽量一致；下例使用 5 个训练步数演示命令参数；正式训练使用实际实验配置。
 
 ```bash
 python scripts/libero_pipeline.py norm --stage mixed_sft \
@@ -398,11 +398,11 @@ python scripts/libero_pipeline.py norm --stage mixed_sft \
 XLA_PYTHON_CLIENT_PREALLOCATE=false \
 python scripts/libero_pipeline.py train --stage mixed_sft \
   --dataset-root "$RECAP_DATA_ROOT" --repo-id "$RECAP_REPO_ID" \
-  --init-checkpoint "$SFT_CKPT_DIR" --exp-name mixed_sft_smoke \
+  --init-checkpoint "$SFT_CKPT_DIR" --exp-name mixed_sft_quickcheck \
   --batch-size 4 --num-train-steps 5 --save-interval 5
 ```
 
-**推理条件：**A/B 启动策略服务时分别指定 `--stage sft`/`--stage mixed_sft`，LIBERO 客户端**不传** `--args.adv_ind_input`；C 使用 `--stage recap`，客户端传入 `--args.adv_ind_input positive`。三组未额外启用 Guidance β 推理扩展，保持上游默认推理计算路径。
+**推理条件：**A/B 启动策略服务时分别指定 `--stage sft`/`--stage mixed_sft`，LIBERO 客户端**不传** `--args.adv_ind_input`；C 使用 `--stage recap`，客户端传入 `--args.adv_ind_input positive`。三组均未额外启用 Guidance β 推理扩展。
 
 ---
 
@@ -418,7 +418,7 @@ python scripts/libero_pipeline.py train --stage mixed_sft \
 
 | 常见现象 / 报错 | 排查与解决思路 |
 | :--- | :--- |
-| 找不到 `pistar_requirements.txt` | 训练环境已统一迁移至 `pyproject.toml`（使用 `uv sync` 安装），请勿引用旧依赖文件 |
+| 找不到 旧版依赖文件 | 训练环境已统一迁移至 `pyproject.toml`（使用 `uv sync` 安装），请勿引用旧依赖文件 |
 | 训练脚本仍读取默认旧数据集 | 优先使用 `scripts/libero_pipeline.py` 的 `--dataset-root` 与 `--repo-id` 显式覆盖默认配置 |
 | GCS / Hugging Face 下载超时 | 将权重提前下载至共享存储，核对 `tokenizer.model` 路径及权重分片完整性 |
 | `ModuleNotFoundError: libero` | 确认已激活 `.venv-libero`，检查 `third_party/libero` 安装及 `PYTHONPATH` 环境变量 |

@@ -7,7 +7,6 @@
 - **A：SFT**：以 π₀.₅ 基础权重为起点，仅用专家示范微调；不使用 Advantage 文本条件。
 - **B：Mixed-Data SFT**：从 A 的 Checkpoint 初始化，使用 Expert + Rollout 混合数据，不使用 Advantage 文本条件。
 - **C：RECAP**：从与 B 相同的 A Checkpoint 初始化，使用与 B 相同的混合数据，利用 `positive` / `negative` Advantage 文本条件训练；推理指定 `positive`。
-- **上游差异**：沿用 `ybpy/pistar` 的 PiStar 模型参数结构及加权 Flow Matching Loss，但 A 组关闭 Advantage 文本条件（原版初始 SFT 会使用 `positive` 条件），是有意的消融设计，不等价于完全保留原版初始 SFT。
 - 评测前分别指定对应 Checkpoint，并加载与训练数据标识一致的动作/状态归一化统计。Checkpoint 路径与训练步数应由实际产物确定，不以固定命名代替验证。
 
 ## 建议评测设置

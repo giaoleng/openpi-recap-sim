@@ -1,21 +1,24 @@
 # 训练与数据处理脚本
 
-本目录组织从专家示范到 RECAP 风格再训练的可执行入口。
+本目录包含项目训练、数据准备、评测辅助和检查工具。
 
-| 脚本 | 独立职责 |
+| 脚本 | 职责 |
 | --- | --- |
-| `train.py` | 根据训练配置执行策略 SFT/条件微调 |
-| `train_value.py` | 基于 `value_label` 优化 VLM Value Model |
-| `label_advantage_from_vlm.py` | Value 推理、N-step Advantage 与 `adv_ind` 重标注 |
-| `check_value_data.py` | 训练前检查 Value batch 的区间、NaN/Inf、图像张量 |
-| `merge_datasets.py` | 合并已经对齐 schema 的示范和 Rollout |
-| `compute_norm_stats.py` | 计算训练所需的数据归一化统计 |
-| `serve_policy.py` | 启动策略模型服务端 |
-| `filter_success_episodes.py` | 按成功条件筛选 Episode |
-| `add_value_labels.py` | 构造 Value 学习所需监督字段 |
-| `verify_source.py` | 源码结构/静态检查辅助 |
+| `libero_pipeline.py` | 统一执行 LIBERO 数据归一化统计、SFT/混合数据/RECAP 训练及策略服务 |
+| `compute_norm_stats.py` | 根据训练配置计算 state/action 归一化统计 |
+| `train.py` | 执行策略模型训练 |
+| `train_value.py` | 使用 `value_label` 训练 VLM Value Model |
+| `label_advantage_from_vlm.py` | Value 推理、N-step Advantage 计算及 `adv_ind` 标注 |
+| `merge_datasets.py` | 合并字段已经对齐的 LeRobot 数据集，并重建全局索引和元数据 |
+| `check_value_data.py` | 检查 Value batch 的数值范围、异常值和图像张量 |
+| `add_value_labels.py` | 为 LeRobot Episode 生成归一化 `value_label` |
+| `filter_success_episodes.py` | 按 reward 或 value 标签筛选成功 Episode |
+| `serve_policy.py` | 启动策略 WebSocket 服务 |
+| `plot_training_curves.py` | 从实际 CSV 日志绘制训练曲线 |
+| `verify_source.py` | 无需 GPU 的源码静态检查 |
 
-运行前先核对 `--help` 中的参数、数据目录和对应的训练配置；涉及覆盖参数时先备份现有输出。
+LIBERO 任务执行与自主 Rollout 采集入口位于 `examples/libero/main.py`；RLDS 专家示范转换入口位于 `examples/libero/pistar_rlds_demo_processing.py`。
 
-推荐排查路径：**先检查数据 batch，再训练 Value，再进行 Advantage 标注**。参数与步骤见 [完整操作手册](../README.md)。脚本文件存在并不等于依赖和端到端训练已经通过。
+合并脚本只处理已经对齐字段的 LeRobot 数据集，不负责补默认标签、修正图像布局或推断 Demo/Rollout 类型。执行前应检查字段、动作维度、图像分辨率和任务元数据。
 
+各脚本参数可通过对应命令的 `--help` 查看。完整流程见根目录 README。

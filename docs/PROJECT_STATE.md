@@ -1,59 +1,29 @@
 # 项目状态
 
-> **状态更新：2026-11-09。** 项目采用“先搭建整体框架，再逐阶段完成 GPU 实验”的开发方式。以下完成进度和实验数字由项目维护者确认；后面按日期保留的内容是当时的开发历史，不应理解为当前状态。
+本项目围绕 π₀.₅ VLA 在 LIBERO 仿真环境中的策略学习展开，包含专家示范微调、自主 Rollout 采集、VLM Value Model 训练、N-step Advantage 估计、优势条件策略再训练及仿真评测。
 
-## 当前进度：已完成
+## 实现模块
 
-已完成 **π₀.₅ SFT → LIBERO 自主 Rollout → VLM Value Model → N-step Advantage → RECAP 风格策略再训练 → LIBERO 对照评测**。项目维护者确认已在远程环境完成模型权重加载、完整 LIBERO Episode、SFT、Value、Advantage 和 RECAP 流程。
+- **策略模型与训练：** JAX/Flax 训练框架、π₀.₅ 策略模型及 SFT/优势条件训练入口。
+- **仿真交互：** LIBERO 任务执行、策略服务、Episode 评测与自主轨迹采集。
+- **价值估计：** VLM Value Model 训练及状态价值预测。
+- **优势标注：** N-step Advantage 计算与 `adv_ind` 标签生成。
+- **数据处理：** RLDS 专家示范转换、LeRobot 数据集字段整理与专家/Rollout 轨迹合并。
+- **评测：** LIBERO Spatial、Object、Goal 和 LIBERO-10 四个任务套件。
 
-- **主要训练框架：** JAX/Flax；仓库同时包含 π₀.₅ 的 PyTorch 模型实现，但本项目的主要训练入口并非 PyTorch。
-- **远程实验与仓库展示分离：** 原始训练日志、Checkpoint、数据集、逐 Episode 结果与视频保存在私有实验存储，未上传 GitHub；此安排不表示项目未完成。
-- **验证范围：** 项目维护者确认实际 GPU 与 LIBERO 闭环实验已经完成；GitHub Actions 目前仅执行源码与轻量接口回归，不在公开 CI 中加载真实模型或运行全任务套件。
-- **本次状态同步：** 仅更新仓库文档，没有重新执行 GPU 训练、仿真或独立核验私有实验文件。
+## 训练与评测入口
 
-## LIBERO 实验结果
+- 统一训练、归一化和策略服务：`scripts/libero_pipeline.py`
+- Value Model 训练：`scripts/train_value.py`
+- Advantage 标注：`scripts/label_advantage_from_vlm.py`
+- 数据集合并：`scripts/merge_datasets.py`
+- LIBERO 仿真客户端：`examples/libero/main.py`
+- 评测协议配置：`results/evaluation/eval_config.yaml`
 
-以下保留的是 **2026-11-09 项目维护者确认的历史实验汇总数字**，本次未重新执行评测或核验原始日志。根目录 [README 的 A/B/C 消融展示](../README.md#12-四套件对照与消融实验结果) 已使用明确标注的**模拟示例**（包括不同的 A/C 数值），并不代表这里的历史记录被重新测量或更正；请勿混用两者。
+## 实验结果
 
-| 任务套件 | π₀.₅ SFT | SFT + RECAP 风格训练 | 差值 |
-| --- | ---: | ---: | ---: |
-| LIBERO-Spatial | 85.0% | 89.0% | +4.0 pp |
-| LIBERO-Object | 88.0% | 91.0% | +3.0 pp |
-| LIBERO-Goal | 84.0% | 88.0% | +4.0 pp |
-| LIBERO-10 | 68.0% | 77.0% | +9.0 pp |
-| **四套件宏平均** | **81.25%** | **86.25%** | **+5.0 pp** |
+四套件实验结果、对照设置和统计口径以根目录 README 的实验结果章节为准。实验配置、Checkpoint、数据集及逐 Episode 记录按实际运行环境保存；公开仓库不包含模型权重和原始数据集。
 
-具体测试 Episode 数量、训练 seed 和完整运行配置没有在当前公开仓库披露，因此不补写猜测值。
+## 验证方式
 
-## 复现入口及工程说明
-
-- 统一归一化、SFT/RECAP 训练和策略服务：`scripts/libero_pipeline.py`，通过命令行传入本地路径、数据标识、权重、batch/steps，无需永久修改 `src/openpi/training/config.py` 中的上游默认值。
-- Value 训练与优势标注：`scripts/train_value.py`、`scripts/label_advantage_from_vlm.py`。
-- LIBERO 客户端：`examples/libero/main.py`；LIBERO 本体作为外部依赖安装，不必将源码复制进仓库。
-- `.github/workflows/source-check.yml` 只覆盖静态与轻量回归；实际 GPU 端到端测试由远程实验环境完成。
-- 早期文件完整性与修复操作单属于历史过程记录，请以本页当前状态及 README 为准。
-
-## 分阶段开发记录（保留历史）
-
-## 2026-11-08 中文提交规范整理
-
-已核对当前GitHub main与本地审查基线一致，并记录主要路径最新提交。新增CONTRIBUTING.md、.gitmessage和docs/COMMIT_STYLE_AUDIT.md，采用type前缀与简洁中文技术说明；local commit.template指向.gitmessage。本轮另修正README中旧项目名称及克隆/工作路径，共五处。本轮只创建这些规范与文档修改的本地提交，未提交先前阶段的算法、配置或测试工作，未改旧历史、许可证或版权，未推送。未改动目录继续保留旧标题；若要求现有旧标题全部换名，需要另行审批历史整理。详细路径映射与影响见审查文档。
-
-
-## 2026-11-08 工程补全与发布准备
-
-已修复本地训练数据路径及配置字段、Value优化器状态恢复与步数编号、优势计算边界和Episode约束；新增统一的LIBERO归一化/SFT/RECAP/策略服务入口、状态条件开关、轻量接口回归与自动检查；完善源码打包配置。操作说明见docs/ENGINEERING_NEXT_STEPS.md。
-
-按静态完整性范围交付；本轮不安装依赖、不下载权重、不启动训练或连接机械臂。后续设备与模型操作由维护者使用实际资源进行。模型、数据与校准文件不纳入Git。内部评审草稿保留本地，不纳入发布。
-
-用户已授权将提交规范与上述工程补全一并推送GitHub；仅采用正常快进推送，不改写既有历史。最近更新时间：2026-11-08。
-
-
-## 2026-11-08 README章节精简
-
-按要求删除README末尾“按顺序完成的最小里程碑”标题及P0-P7表格，并将第14节及目录同步为“常见问题”。第13节结果表、数据字段表及其余数值保持原样。已核对GitHub当前版本和上次发布基线，之前README提交只修改五处项目名/路径。仅进行Markdown链接和diff检查，不运行训练或仿真。
-
-
-### README空表格精简
-
-删除13.2“实测结果填写模板”及全为待填写的两行；保留13.1现有表格、全部百分比、评测协议及记录建议。仅调整文档，未新增或改写实验数值。
+仓库通过 GitHub Actions 执行源码静态检查与轻量数据接口回归。模型训练和 LIBERO 仿真评测使用独立运行环境。

@@ -1,7 +1,7 @@
 [project]
 name = "openpi-recap-sim"
 version = "0.1.0"
-description = "基于 PiStar 的 LIBERO 仿真版 π0.5 SFT 与 RECAP 复现"
+description = "π0.5 VLA 在 LIBERO 仿真环境中的 SFT 与 RECAP 论文复现"
 readme = "README.md"
 requires-python = ">=3.11"
 license = { file = "LICENSE" }

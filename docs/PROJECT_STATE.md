@@ -8,7 +8,7 @@
 - **仿真交互：** LIBERO 任务执行、策略服务、Episode 评测与自主轨迹采集。
 - **价值估计：** VLM Value Model 训练及状态价值预测。
 - **优势标注：** N-step Advantage 计算与 `adv_ind` 标签生成。
-- **数据处理：** RLDS 专家示范转换、LeRobot 数据集整理与合并。
+- **数据处理：** RLDS 专家示范转换、LeRobot 数据集字段整理；专家与 Rollout 数据集的通用合并需使用兼容的外部工具。
 - **评测：** LIBERO Spatial、Object、Goal 和 LIBERO-10 四个任务套件。
 
 ## 训练与评测入口
@@ -16,7 +16,6 @@
 - 统一训练、归一化和策略服务：`scripts/libero_pipeline.py`
 - Value Model 训练：`scripts/train_value.py`
 - Advantage 标注：`scripts/label_advantage_from_vlm.py`
-- 数据合并：`scripts/merge_datasets.py`
 - LIBERO 仿真客户端：`examples/libero/main.py`
 - 评测协议配置：`results/evaluation/eval_config.yaml`
 

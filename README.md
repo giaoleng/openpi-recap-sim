@@ -1,6 +1,6 @@
 # openpi-recap-sim
 
-基于 π₀.₅ VLA 与 LIBERO 仿真环境复现 **RECAP 论文中的优势条件策略学习方法**，提供专家示范转换、策略微调、LIBERO 自主 Rollout 采集、VLM Value Model 训练、N-step Advantage 标注与优势条件策略再训练流程。专家示范与 Rollout 的数据集合并需使用兼容的 LeRobot 工具完成。
+基于 π₀.₅ VLA 与 LIBERO 仿真环境复现 **RECAP 论文中的优势条件策略学习方法**，提供专家示范转换、策略微调、自主 Rollout 采集、LeRobot 数据集合并、VLM Value Model 训练、N-step Advantage 标注与优势条件策略再训练流程。
 
 ---
 
@@ -318,7 +318,7 @@ python examples/libero/main.py \
 
 ### 3.3 阶段三：混合数据与 VLM Value Model 训练
 
-切换回**训练环境（`.venv`）**，先将原始专家示范与采集到的自主 Rollout 整理为同一份 LeRobot 数据集，再训练 VLM Value Model 预测状态价值 $V(o_t)$。**当前仓库尚未提供通用数据集合并脚本**，因此不提供无法执行的合并命令；合并工具需与安装的 LeRobot 版本匹配。合并后请检查 `meta/info.json`、Episode 数量，以及 `image`、`wrist_image`、`state`、`actions`、`intervention`、`value_label`、`reward`、`reward_label`、`adv_ind` 等字段。
+切换回**训练环境（`.venv`）**，将原始专家示范与采集到的自主 Rollout 合并，并训练 VLM Value Model 预测状态价值 $V(o_t)$。合并脚本仅处理已经对齐字段的 LeRobot 数据集，不负责补列、缩放图像或推断标签；执行前请确认两类数据的 Schema、图像布局和动作维度一致。
 
 ```bash
 source "$PROJECT_ROOT/.venv/bin/activate"

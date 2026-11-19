@@ -1,6 +1,6 @@
 experiment:
-  name: pi05_sft_vs_mixed_sft_vs_recap_libero
-  type: evaluation_protocol  # 协议配置，不等于已经执行的评测记录
+  name: pi05_sft_mixed_sft_recap_libero
+  type: evaluation_protocol
   benchmark: LIBERO
 
 evaluation:
@@ -10,27 +10,7 @@ evaluation:
     - libero_goal
     - libero_10
   tasks_per_suite: 10
-  episodes_per_task: 50   # 10 tasks x 50 = 500 episodes/suite/model
-  seed: 7                 # 固定评测种子；实际运行情况以日志为准
+  episodes_per_task: 50
+  seed: 7
   success_metric: "successful_episodes / completed_episodes"
-  matched_initial_conditions: true  # required when running comparison
-
-checkpoints:
-  sft:
-    stage: supervised_finetuning
-    advantage_conditioning: false
-    checkpoint_path: null     # insert existing checkpoint; not yet verified
-    normalization_stats: null
-  mixed_sft:
-    stage: mixed_data_supervised_finetuning
-    initialization: sft
-    advantage_conditioning: false
-    checkpoint_path: null     # 与RECAP相同的SFT初始化；待实际训练后填写
-    normalization_stats: null
-  recap:
-    stage: advantage_conditioned_post_training
-    advantage_conditioning: true
-    initialization: sft
-    checkpoint_path: null     # insert existing checkpoint; not yet verified
-    normalization_stats: null
-
+  matched_initial_conditions: true

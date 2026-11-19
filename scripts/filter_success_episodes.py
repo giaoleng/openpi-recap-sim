@@ -46,7 +46,7 @@
 
 3. 使用绝对路径:
    python scripts/filter_success_episodes.py \
-       --input-root /public/home/user/lerobot_datasets/rollout \
+       --input-root /path/to/lerobot_datasets/rollout \
        --output-root /public/home/user/lerobot_datasets/rollout_success_only \
        --overwrite
 """

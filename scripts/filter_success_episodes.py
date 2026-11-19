@@ -37,8 +37,8 @@
        --overwrite
 
 2. 如果 rollout 没有 reward，但有 value_label:
-   sudo HF_LEROBOT_HOME=/public/home/wangsenbao_it/litianheng/lerobot_datasets \
-     /.venv/bin/python scripts/filter_success_episodes.py \
+   HF_LEROBOT_HOME=/path/to/lerobot_datasets \
+     python scripts/filter_success_episodes.py \
        --input-repo-id rollout_with_value_label \
        --output-repo-id rollout_success_only \
        --criterion value_label \
@@ -47,7 +47,7 @@
 3. 使用绝对路径:
    python scripts/filter_success_episodes.py \
        --input-root /path/to/lerobot_datasets/rollout \
-       --output-root /public/home/user/lerobot_datasets/rollout_success_only \
+       --output-root /path/to/lerobot_datasets/rollout_success_only \
        --overwrite
 """
 

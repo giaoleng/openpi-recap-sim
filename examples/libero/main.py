@@ -26,15 +26,11 @@ More args can be found in the Args dataclass.
 '''
 
 import collections
-
-from eval_logging import EvaluationRecorder
 import dataclasses
 import logging
 import math
 import pathlib
-import re
 import shutil
-import subprocess
 from typing import Optional
 
 import imageio
@@ -81,15 +77,6 @@ class Args:
     # Utils
     #################################################################################################################
     video_out_path: str = "data/libero/videos"  # Path to save videos
-    save_videos: bool = False  # 全量评测默认只保存CSV/JSON；展示时显式开启
-    eval_output_dir: str = "results/evaluation/runs"  # 每次运行单独生成 CSV + JSON
-    model_label: str = "model"  # A/B/C 模型标识，写入结果文件名与 CSV
-    checkpoint_path: Optional[str] = None  # 评测用服务端Checkpoint路径（需显式填写）
-    checkpoint_step: Optional[int] = None  # 可选，未传时尝试从checkpoint目录名解析
-    action_horizon: Optional[int] = None  # 策略预测Action Horizon，需与服务端配置一致
-    adv_guidance_beta: Optional[float] = None  # 与RECAP服务端CFG beta保持一致，供实验对照记录
-    git_commit: Optional[str] = None  # 不传则从LIBERO客户端仓库自动读取
-    libero_commit: Optional[str] = None  # 不传则从已安装的LIBERO源码自动读取
 
     #################################################################################################################
     # 可选：将 Rollout 保存为 LeRobot 数据集
@@ -271,63 +258,21 @@ class LiberoRolloutLeRobotWriter:
         return reward_labels
 
 
-def _git_revision(path: pathlib.Path) -> str | None:
-    """从本地检出的Git代码读取Commit；不可访问时返回None，不伪造版本。"""
-    try:
-        result = subprocess.run(
-            ["git", "-C", str(path), "rev-parse", "HEAD"],
-            capture_output=True, text=True, check=True, timeout=5,
-        )
-        sha = result.stdout.strip()
-        return sha if re.fullmatch(r"[0-9a-f]{40}", sha) else None
-    except (OSError, subprocess.CalledProcessError, subprocess.TimeoutExpired):
-        return None
-
-
-def _evaluation_provenance(args: Args) -> dict:
-    step = args.checkpoint_step
-    if step is None and args.checkpoint_path:
-        match = re.search(r"(?:step[_-]?)(\d+)$", pathlib.Path(args.checkpoint_path).name)
-        if match:
-            step = int(match.group(1))
-    client_repo = pathlib.Path(__file__).resolve().parents[2]
-    libero_dir = pathlib.Path(benchmark.__file__).resolve().parent
-    libero_revision = _git_revision(libero_dir)
-    # 若LIBERO以普通site-packages形式安装在本仓库的.venv里，
-    # git向上查找可能误读成本项目commit，必须避免这样的伪溯源。
-    if libero_dir.is_relative_to(client_repo) and not libero_dir.is_relative_to(
-        client_repo / "third_party" / "libero"
-    ):
-        libero_revision = None
-    return {
-        "checkpoint_path": args.checkpoint_path,
-        "checkpoint_step": step,
-        "git_commit": args.git_commit or _git_revision(client_repo),
-        "libero_commit": args.libero_commit or libero_revision,
-        "action_horizon": args.action_horizon,
-        "advantage_input": args.adv_ind_input,
-        "adv_guidance_beta": args.adv_guidance_beta,
-        "save_videos": args.save_videos,
-        "note": "Checkpoint和action_horizon需要和策略服务端确认；缺失字段保留null而不猜测。",
-    }
-
-
 def eval_libero(args: Args) -> None:
     if args.debug_raw_obs_only:
         _debug_libero_raw_obs(args)
         return
 
-    if args.num_trials_per_task <= 0 or args.replan_steps <= 0:
-        raise ValueError("num_trials_per_task 和 replan_steps 必须大于 0")
-
+    # Set random seed
     np.random.seed(args.seed)
+
+    # Initialize LIBERO task suite
     benchmark_dict = benchmark.get_benchmark_dict()
     task_suite = benchmark_dict[args.task_suite_name]()
     num_tasks_in_suite = task_suite.n_tasks
-    logging.info("Task suite: %s", args.task_suite_name)
+    logging.info(f"Task suite: {args.task_suite_name}")
 
-    if args.save_videos:
-        pathlib.Path(args.video_out_path).mkdir(parents=True, exist_ok=True)
+    pathlib.Path(args.video_out_path).mkdir(parents=True, exist_ok=True)
 
     if args.task_suite_name == "libero_spatial":
         max_steps = 280  # longest training demo has 193 steps; allow longer rollouts
@@ -342,194 +287,166 @@ def eval_libero(args: Args) -> None:
     else:
         raise ValueError(f"Unknown task suite: {args.task_suite_name}")
 
-    if args.task_ids is not None:
-        valid_task_ids = [i for i in args.task_ids if 0 <= i < num_tasks_in_suite]
-        invalid_task_ids = [i for i in args.task_ids if i < 0 or i >= num_tasks_in_suite]
-        if invalid_task_ids:
-            logging.warning("Ignoring out-of-range task ids: %s", invalid_task_ids)
-        if not valid_task_ids:
-            raise ValueError("No valid task ids left after filtering.")
-        task_ids = valid_task_ids
-    else:
-        task_ids = range(num_tasks_in_suite)
-
     client = _websocket_client_policy.WebsocketClientPolicy(args.host, args.port)
     rollout_writer = LiberoRolloutLeRobotWriter(args) if args.save_lerobot_rollout else None
 
-    with EvaluationRecorder(
-        output_dir=args.eval_output_dir,
-        model_label=args.model_label,
-        suite=args.task_suite_name,
-        seed=args.seed,
-        max_steps=max_steps,
-        replan_steps=args.replan_steps,
-        run_metadata=_evaluation_provenance(args),
-    ) as recorder:
-        total_episodes, total_successes, total_errors = 0, 0, 0
-        logging.info("Recording evaluation to: %s", recorder.csv_path)
+    # Start evaluation
+    total_episodes, total_successes = 0, 0
+    if args.task_ids is not None:
+        filtered_task_ids = [task_id for task_id in args.task_ids if 0 <= task_id < num_tasks_in_suite]
+        invalid_task_ids = [task_id for task_id in args.task_ids if task_id < 0 or task_id >= num_tasks_in_suite]
+        if invalid_task_ids:
+            logging.warning(
+                "Ignoring out-of-range task ids: %s (valid range: [0, %d))",
+                invalid_task_ids,
+                num_tasks_in_suite,
+            )
+        if not filtered_task_ids:
+            logging.error("No valid task ids left after filtering; nothing to evaluate.")
+            return
+        logging.info(f"Evaluating specified task ids: {filtered_task_ids}")
+        task_ids = filtered_task_ids
+    else:
+        logging.info("Evaluating all tasks in suite.")
+        task_ids = range(num_tasks_in_suite)
+    for task_id in tqdm.tqdm(task_ids):
+        # Get task
+        task = task_suite.get_task(task_id)
 
-        for task_id in tqdm.tqdm(task_ids):
-            task = task_suite.get_task(task_id)
-            initial_states = task_suite.get_task_init_states(task_id)
-            num_initial_states = len(initial_states)
-            if num_initial_states == 0:
-                raise ValueError(f"No initial states available for task {task_id}")
-            env, task_description = _get_libero_env(task, LIBERO_ENV_RESOLUTION, args.seed)
+        # Get default LIBERO initial states
+        initial_states = task_suite.get_task_init_states(task_id)
+        num_initial_states = len(initial_states)
 
-            try:
-                task_episodes, task_successes, task_errors = 0, 0, 0
-                for episode_idx in tqdm.tqdm(range(args.num_trials_per_task)):
-                    action_plan = collections.deque()
-                    replay_images = []
-                    rollout_steps = []
-                    init_idx = episode_idx % num_initial_states
-                    t = 0
-                    executed_actions = 0
-                    done = False
-                    episode_error = None
+        # Initialize LIBERO environment and task description
+        env, task_description = _get_libero_env(task, LIBERO_ENV_RESOLUTION, args.seed)
 
-                    try:
-                        env.reset()
-                        obs = env.set_init_state(initial_states[init_idx])
-                        while t < max_steps + args.num_steps_wait:
-                            # Let objects settle before action execution.
-                            if t < args.num_steps_wait:
-                                obs, reward, done, info = env.step(LIBERO_DUMMY_ACTION)
-                                t += 1
-                                continue
+        # Start episodes
+        task_episodes, task_successes = 0, 0
+        for episode_idx in tqdm.tqdm(range(args.num_trials_per_task)):
+            logging.info(f"\nTask: {task_description}")
 
-                            img_flipped = np.ascontiguousarray(obs["agentview_image"][::-1, ::-1])
-                            wrist_img_flipped = np.ascontiguousarray(obs["robot0_eye_in_hand_image"][::-1, ::-1])
-                            img = image_tools.convert_to_uint8(
-                                image_tools.resize_with_pad(img_flipped, args.resize_size, args.resize_size)
-                            )
-                            wrist_img = image_tools.convert_to_uint8(
-                                image_tools.resize_with_pad(wrist_img_flipped, args.resize_size, args.resize_size)
-                            )
-                            if args.save_videos:
-                                replay_images.append(img)
-                            obs_state = np.concatenate(
-                                (
-                                    obs["robot0_eef_pos"],
-                                    _quat2axisangle(obs["robot0_eef_quat"]),
-                                    obs["robot0_gripper_qpos"],
-                                )
-                            ).astype(np.float32)
+            # Reset environment
+            env.reset()
+            action_plan = collections.deque()
 
-                            if not action_plan:
-                                element = {
-                                    "observation/image": img,
-                                    "observation/wrist_image": wrist_img,
-                                    "observation/state": obs_state,
-                                    "prompt": str(task_description),
-                                }
-                                if args.adv_ind_input is not None:
-                                    element["adv_ind"] = args.adv_ind_input
-                                action_chunk = client.infer(element)["actions"]
-                                if len(action_chunk) < args.replan_steps:
-                                    raise ValueError(
-                                        f"Action chunk is too short: {len(action_chunk)} < {args.replan_steps}"
-                                    )
-                                action_plan.extend(action_chunk[: args.replan_steps])
+            # Set initial states
+            obs = env.set_init_state(initial_states[episode_idx % num_initial_states])
 
-                            action = action_plan.popleft()
-                            obs, reward, done, info = env.step(action.tolist())
-                            executed_actions += 1
-                            if rollout_writer is not None:
-                                rollout_steps.append(
-                                    {
-                                        "image": np.ascontiguousarray(img_flipped),
-                                        "wrist_image": np.ascontiguousarray(wrist_img_flipped),
-                                        "state": np.asarray(obs_state, dtype=np.float32),
-                                        "actions": np.asarray(action, dtype=np.float32),
-                                    }
-                                )
-                            if done:
-                                break
-                            t += 1
-                    except Exception as exc:
-                        episode_error = exc
-                        logging.exception(
-                            "Evaluation ERROR: suite=%s task_id=%d episode=%d",
-                            args.task_suite_name, task_id, episode_idx,
+            # Setup
+            t = 0
+            done = False
+            replay_images = []
+            rollout_steps = []
+
+            logging.info(f"Starting episode {task_episodes+1}...")
+            while t < max_steps + args.num_steps_wait:
+                try:
+                    # IMPORTANT: Do nothing for the first few timesteps because the simulator drops objects
+                    # and we need to wait for them to fall
+                    if t < args.num_steps_wait:
+                        obs, reward, done, info = env.step(LIBERO_DUMMY_ACTION)
+                        t += 1
+                        continue
+
+                    # Get preprocessed image
+                    # IMPORTANT: rotate 180 degrees to match train preprocessing
+                    img_flipped = np.ascontiguousarray(obs["agentview_image"][::-1, ::-1])
+                    wrist_img_flipped = np.ascontiguousarray(obs["robot0_eye_in_hand_image"][::-1, ::-1])
+                    img = image_tools.convert_to_uint8(
+                        image_tools.resize_with_pad(img_flipped, args.resize_size, args.resize_size)
+                    )
+                    wrist_img = image_tools.convert_to_uint8(
+                        image_tools.resize_with_pad(wrist_img_flipped, args.resize_size, args.resize_size)
+                    )
+
+                    # Save preprocessed image for replay video
+                    replay_images.append(img)
+                    obs_state = np.concatenate(
+                        (
+                            obs["robot0_eef_pos"],
+                            _quat2axisangle(obs["robot0_eef_quat"]),
+                            obs["robot0_gripper_qpos"],
                         )
+                    ).astype(np.float32)
 
-                    status = "error" if episode_error is not None else ("success" if done else "failure")
-                    task_episodes += 1
-                    total_episodes += 1
-                    if status == "success":
+                    if not action_plan:
+                        # Finished executing previous action chunk -- compute new chunk
+                        # Prepare observations dict
+                        element = {
+                            "observation/image": img,
+                            "observation/wrist_image": wrist_img,
+                            "observation/state": obs_state,
+                            "prompt": str(task_description),
+                        }
+                        
+                        # Add adv_ind if specified
+                        if args.adv_ind_input is not None:
+                            element["adv_ind"] = args.adv_ind_input
+
+                        # Query model to get action
+                        action_chunk = client.infer(element)["actions"]
+                        assert (
+                            len(action_chunk) >= args.replan_steps
+                        ), f"We want to replan every {args.replan_steps} steps, but policy only predicts {len(action_chunk)} steps."
+                        action_plan.extend(action_chunk[: args.replan_steps])
+
+                    action = action_plan.popleft()
+
+                    # Execute action in environment
+                    obs, reward, done, info = env.step(action.tolist())
+                    if rollout_writer is not None:
+                        rollout_steps.append(
+                            {
+                                "image": np.ascontiguousarray(img_flipped),
+                                "wrist_image": np.ascontiguousarray(wrist_img_flipped),
+                                "state": np.asarray(obs_state, dtype=np.float32),
+                                "actions": np.asarray(action, dtype=np.float32),
+                                # "abs_pose": np.asarray(np.concatenate((obs_state[:6], action[-1:]), axis=-1), dtype=np.float32),
+                            }
+                        )
+                    if done:
                         task_successes += 1
                         total_successes += 1
-                    elif status == "error":
-                        task_errors += 1
-                        total_errors += 1
+                        break
+                    t += 1
 
-                    video_path = ""
-                    if args.save_videos and replay_images:
-                        target = recorder.video_path(args.video_out_path, task_id, episode_idx, status)
-                        try:
-                            imageio.mimwrite(target, [np.asarray(x) for x in replay_images], fps=10)
-                            video_path = str(target)
-                        except Exception:
-                            logging.exception("Unable to save replay video: %s", target)
+                except Exception as e:
+                    logging.error(f"Caught exception: {e}")
+                    break
 
-                    # 先写入并刷新评测记录；采集数据的保存失败不能抹除评测结果。
-                    recorder.record(
-                        task_id=task_id,
-                        episode_id=episode_idx,
-                        init_state_index=init_idx,
-                        status=status,
-                        steps=executed_actions,
-                        error=episode_error,
-                        video_path=video_path,
-                    )
-                    if rollout_writer is not None and status != "error":
-                        rollout_writer.save_episode(
-                            steps=rollout_steps,
-                            task=str(task_description),
-                            success=status == "success",
-                        )
-                    elif rollout_writer is not None:
-                        logging.warning(
-                            "Skipping invalid rollout after inference/environment error: task=%d episode=%d",
-                            task_id, episode_idx,
-                        )
+            task_episodes += 1
+            total_episodes += 1
 
-                    valid_so_far = total_episodes - total_errors
-                    task_valid = task_episodes - task_errors
-                    logging.info(
-                        "Episode status=%s; task SR(valid)=%s (%d/%d), errors=%d; "
-                        "suite SR(valid)=%s (%d/%d), errors=%d",
-                        status,
-                        f"{task_successes / task_valid:.3f}" if task_valid else "N/A",
-                        task_successes, task_valid, task_errors,
-                        f"{total_successes / valid_so_far:.3f}" if valid_so_far else "N/A",
-                        total_successes, valid_so_far, total_errors,
-                    )
-
-                logging.info(
-                    "Task %d finished: success=%d valid=%d errors=%d attempted=%d",
-                    task_id, task_successes, task_episodes - task_errors, task_errors, task_episodes,
+            # Save a replay video of the episode
+            suffix = "success" if done else "failure"
+            task_segment = task_description.replace(" ", "_")
+            if replay_images:
+                imageio.mimwrite(
+                    pathlib.Path(args.video_out_path) / f"rollout_{task_segment}_{suffix}.mp4",
+                    [np.asarray(x) for x in replay_images],
+                    fps=10,
                 )
-            finally:
-                try:
-                    env.close()
-                except Exception:
-                    logging.exception("Failed to close LIBERO environment for task %d", task_id)
+            if rollout_writer is not None:
+                rollout_writer.save_episode(
+                    steps=rollout_steps,
+                    task=str(task_description),
+                    success=done,
+                )
 
-        valid_episodes = total_episodes - total_errors
-        logging.info("Final results for task suite: %s", args.task_suite_name)
-        logging.info("Valid success rate: %s", f"{total_successes / valid_episodes:.6f}" if valid_episodes else "N/A")
-        logging.info("Successful=%d, valid=%d, errors=%d, attempted=%d",
-                     total_successes, valid_episodes, total_errors, total_episodes)
-        logging.info("Episode CSV: %s; summary JSON: %s", recorder.csv_path, recorder.summary_path)
-        if rollout_writer is not None:
-            logging.info("LeRobot rollout export completed: %s", rollout_writer.dataset_path)
-        if total_errors:
-            raise RuntimeError(
-                f"Evaluation contains {total_errors} error episodes. "
-                f"Run is incomplete; inspect {recorder.csv_path} and {recorder.summary_path}"
-            )
+            # Log current results
+            logging.info(f"Success: {done}")
+            logging.info(f"# episodes completed so far: {total_episodes}")
+            logging.info(f"# successes: {total_successes} ({total_successes / total_episodes * 100:.1f}%)")
+
+        # Log final results
+        logging.info(f"Current task success rate: {float(task_successes) / float(task_episodes)}")
+        logging.info(f"Current total success rate: {float(total_successes) / float(total_episodes)}")
+
+    logging.info(f"Final results for task suite: {args.task_suite_name}")
+    logging.info(f"Total success rate: {float(total_successes) / float(total_episodes)}")
+    logging.info(f"Total episodes: {total_episodes}")
+    if rollout_writer is not None:
+        logging.info(f"LeRobot rollout export completed. Dataset saved at {rollout_writer.dataset_path}.")
 
 
 def _get_libero_env(task, resolution, seed):

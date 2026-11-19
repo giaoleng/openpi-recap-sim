@@ -21,9 +21,8 @@
   - [3.4 阶段四：N-step Advantage 标注与 RECAP 再训练](#34-阶段四n-step-advantage-标注与-recap-再训练)
 - [四、评测规范与常见问题](#4-评测规范与常见问题)
   - [4.1 LIBERO 统一评测协议](#41-libero-统一评测协议)
-  - [4.2 GPU/LIBERO 端到端冒烟验收](#42-gpulibero-端到端冒烟验收)
-  - [4.3 常见问题排查（FAQ）](#43-常见问题排查faq)
-  - [4.4 许可证](#44-许可证)
+  - [4.2 常见问题排查（FAQ）](#42-常见问题排查faq)
+  - [4.3 许可证](#43-许可证)
 
 ---
 
@@ -45,11 +44,11 @@ https://github.com/user-attachments/assets/c0f2cece-82b4-41d0-98f2-1e90db5c2aff
 
 | 实验组 | 初始化权重 | 训练数据 | 微调方式 |
 | :--- | :--- | :--- | :--- |
-| **A：SFT 基线** | π₀.₅ Base | Expert Demonstrations | 全参数 SFT（无 Advantage 条件） |
-| **B：Mixed-Data SFT（消融对照）** | A 的 SFT Checkpoint | Expert + 成功/失败 Rollout | 全参数 SFT（`--stage mixed_sft`，不启用 Advantage Conditioning） |
-| **C：RECAP** | A 的 SFT Checkpoint | 与 B 相同的混合数据 + Advantage 标签 | 全参数 Advantage-Conditioned SFT（`--stage recap`） |
+| **A：SFT 基线** | π₀.₅ Base | Expert Demonstrations | 全参数 SFT（不使用 Advantage 条件） |
+| **B：Mixed-Data SFT（消融对照）** | A 的 SFT Checkpoint | Expert + 成功/失败 Rollout | 全参数 SFT（不使用 Advantage 条件） |
+| **C：RECAP** | A 的 SFT Checkpoint | 与 B 相同的混合数据 + Advantage 标签 | 全参数 Advantage-Conditioned SFT |
 
-*训练入口现按 `--stage sft / mixed_sft / recap` 分别控制 Advantage 文本条件：A/B 关闭，C 开启；三组保留相同的 `pistar=True` 模型架构和参数形状，不使用 LoRA。**相比此前默认条件化的 SFT 训练入口，这是行为变更；需要按新设置重新训练/评测才能形成严格对照。***
+*基于上游 `ybpy/pistar` 的 `π₀.₅ + pistar=True` 训练结构：A/B/C 保持相同模型参数结构与 PiStar 时间加权 Flow Matching 损失，只切换 Advantage 文本条件。`--stage sft`（A）和 `--stage mixed_sft`（B）关闭该条件；`--stage recap`（C）启用。A 从 π₀.₅ Base 初始化，B/C 从**同一个 A 的 Checkpoint** 初始化，并使用**同一份混合数据**。这是一项有意区别于上游初始 SFT（原版使用 Positive 条件）的消融改动；旧权重需按新设置重新训练才可以严格对比。B 组尚无可核验实测结果。*
 
 > **示例数据说明：**除上面的实验组设计表外，本节后续**三张结果/统计表均为模拟/推测数据，并非实际评测或训练日志统计**，仅用于展示消融分析结构、统计口径与数值关系。此前项目报告的 A/C 原始汇总值保留在[项目状态记录](docs/PROJECT_STATE.md)中，不应将以下示例数值视为重新评测或修正后的实测结果。
 
@@ -300,7 +299,6 @@ export MUJOCO_GL=egl
 python examples/libero/main.py \
   --args.host 127.0.0.1 \
   --args.port 8000 \
-  --args.model_label sft \
   --args.task_suite_name libero_10 \
   --args.task_ids 0 \
   --args.num_trials_per_task 5 \
@@ -310,7 +308,6 @@ python examples/libero/main.py \
 python examples/libero/main.py \
   --args.host 127.0.0.1 \
   --args.port 8000 \
-  --args.model_label sft_rollout \
   --args.task_suite_name libero_10 \
   --args.task_ids 0 \
   --args.num_trials_per_task 10 \
@@ -333,28 +330,18 @@ python scripts/merge_datasets.py \
     "$WORK_ROOT/lerobot_datasets/libero_rollout_round1" \
   --output "$WORK_ROOT/lerobot_datasets/libero_mixed_round1"
 
-# 2. 按任务分层、按完整Episode切分train/val（不按帧切分，降低数据泄漏风险）
-python scripts/split_value_episodes.py \
-  --source "$WORK_ROOT/lerobot_datasets/libero_mixed_round1" \
-  --output "$WORK_ROOT/lerobot_datasets/value_split_round1" \
-  --val-ratio 0.2 --seed 42
-
-# 3. VLM Value验证：独立验证集记录val CE、MAE、Spearman
-# 下列5-step仅验证代码路径；正式训练需使用足够训练预算
+# 2. 训练 VLM Value Model（用于后续优势估计，不作为仿真成功判定器）
 python scripts/train_value.py \
-  --data_dir "$WORK_ROOT/lerobot_datasets/value_split_round1/train" \
-  --val_data_dir "$WORK_ROOT/lerobot_datasets/value_split_round1/val" \
+  --data_dir "$WORK_ROOT/lerobot_datasets/libero_mixed_round1" \
   --checkpoint_dir "$WORK_ROOT/checkpoints/value_model/round1_smoke" \
   --batch_size 4 \
   --num_train_steps 5 \
   --save_interval 5 \
-  --val_interval 1 \
+  --val_interval 0 \
   --wandb_mode disabled \
   --load_pretrained \
   --tokenizer_path "$WORK_ROOT/weights/vlm_ckpt/tokenizer.model"
 ```
-
-**Value Model 验证约束：**正式运行必须提供 `--val_data_dir`（独立Episode），否则脚本会拒绝启动；只有在确实只做功能冒烟时才能添加 `--allow_no_val`。训练时记录验证 Cross-Entropy、Value MAE 与 Spearman 排序相关性；如某些验证批次标签为常数，Spearman 将记为 N/A。切分脚本记录原始Episode ID，保持集合互斥，但**不会自动识别源数据中被重复收录的相同轨迹**，应先对输入去重。该验证旨在检查Value预测可靠性，并不等同于最终闭环策略收益。
 
 ### 3.4 阶段四：N-step Advantage 标注与 RECAP 再训练
 
@@ -400,20 +387,9 @@ python scripts/libero_pipeline.py train --stage recap \
   --batch-size 4 --num-train-steps 5 --save-interval 5
 ```
 
-**RECAP Advantage Guidance（推理阶段可配置）：**C 组默认 `--adv-guidance-beta 2.0`，使用 Positive/Unconditional 双分支速度场引导；`--adv-guidance-beta 1.0` 只使用 Positive 条件、不额外做 Guidance。为单独测出 **Advantage Conditioning 的贡献**，建议先将 C 组设为 **β=1** 与无条件 B 组比较；再额外对比 C（β=1）→ C（β=2）来分析 Guidance 的增益。A/B 无 Advantage 条件，也不会启用该引导。
+#### 3. B 组：无 Advantage 的混合数据 SFT
 
-```bash
-# C组策略服务：显式开启CFG Guidance beta=2（用于与beta=1做推理消融）
-python scripts/libero_pipeline.py serve --stage recap \
-  --repo-id "$RECAP_REPO_ID" --checkpoint "/path/to/recap_checkpoints/step_xxxxx" \
-  --adv-guidance-beta 2.0 --port 8000
-# 客户端评测C组需要额外传入 --args.adv_ind_input positive
-# 并传 --args.adv_guidance_beta 2.0 记录服务端推理参数
-```
-
-#### 3. B 组：同一混合数据的无 Advantage SFT 消融
-
-B、C 均从**同一个 SFT Checkpoint** 开始，并使用**同一份已标注混合数据**；B 的 `--stage mixed_sft` 会忽略 `adv_ind` 文本条件，但保留 PiStar 模型结构和对应的损失函数。两组还需对齐 batch size、训练步数、随机种子及优化器参数。以下为 5-step 冒烟示例，正式消融应增大训练步数。
+B、C 均从上述**相同 SFT Checkpoint** 初始化，使用**同一份已标注混合数据**（B 读取数据但忽略 `adv_ind` 文本条件，C 使用 `adv_ind`）。其他训练参数尽量一致；下例均为 5-step 冒烟测试，不代表正式结果。
 
 ```bash
 python scripts/libero_pipeline.py norm --stage mixed_sft \
@@ -426,7 +402,7 @@ python scripts/libero_pipeline.py train --stage mixed_sft \
   --batch-size 4 --num-train-steps 5 --save-interval 5
 ```
 
-运行 B 的推理服务时使用 `serve --stage mixed_sft`，客户端不传 `--args.adv_ind_input`；运行 C 时使用 `serve --stage recap` 并指定 `--args.adv_ind_input positive`。A 组也不传该条件。
+**推理条件：**A/B 启动策略服务时分别指定 `--stage sft`/`--stage mixed_sft`，LIBERO 客户端**不传** `--args.adv_ind_input`；C 使用 `--stage recap`，客户端传入 `--args.adv_ind_input positive`。三组未额外启用 Guidance β 推理扩展，保持上游默认推理计算路径。
 
 ---
 
@@ -434,41 +410,11 @@ python scripts/libero_pipeline.py train --stage mixed_sft \
 
 ### 4.1 LIBERO 统一评测协议
 
-**A/B/C 损失口径：**三组均保留 `pistar=True` 并使用相同的 **PiStar 时间加权 Flow Matching Loss**；A/B 关闭 Advantage 文本条件，C 开启。因而 A 是 *PiStar-compatible π₀.₅ SFT baseline*，**不是**原始官方 π₀.₅ 默认损失的独立复现。B→C（β=1）主要考察条件化，C（β=1）→C（β=2）额外考察推理 Guidance；实验数据和训练预算还需严格一致。
-
-* **对照模型**：同任务、同初始状态下对比 A：SFT、B：Mixed-Data SFT、C：RECAP；B 与 C 使用相同数据及后训练预算。
+* **对照模型**：同等设置下对比 A（Expert-only SFT）、B（Mixed-Data SFT，无 Advantage）与 C（RECAP，有 Advantage），并保证相同初始状态及推理参数。
 * **建议评测规模（非既有实测次数声明）**：覆盖 `libero_spatial`、`libero_object`、`libero_goal`、`libero_10` 四个套件（每套件 10 个任务），每任务建议运行 50 个 Episode，固定初始种子 `seed=7`（完整评测参数见 [eval_config.yaml](results/evaluation/eval_config.yaml)）。
-* **指标口径**：单任务成功率 = 成功 Episode / 有效 Episode（成功 + 正常失败）；异常 Episode 单独计为 `error`，不混作正常失败。出现错误时，本轮评测标记为未完成；四套件以等权宏平均汇总。
-* **可复核结果**：每次运行在 `results/evaluation/runs/` 生成独立的逐 Episode CSV 和汇总 JSON；JSON 的 `run_metadata` 还记录 Checkpoint 路径/Step、项目与 LIBERO Commit、Action Horizon、Advantage 输入、Guidance β 及是否保存视频。模型权重路径和 Action Horizon 由客户端显式传入（不能从Socket自动推断），Git Commit尽量从本地仓库读取，无法确定时保留 null，**请与实际服务端配置核对**。
-* **视频保存开关**：完整评测默认 `--args.save_videos false`，避免生成成千上万的MP4；需要录制典型成功/失败视频时用 `--args.save_videos true`，文件名仍按运行/任务/Episode唯一命名。
+* **指标口径**：单任务成功率 $\text{SR} = \frac{\text{成功 Episode 数}}{\text{评测 Episode 总数}} \times 100\%$；先计算各套件 10 个任务的均值，再求四套件等权宏平均（Macro Average）。
 
-```bash
-# A/B 不加 --args.adv_ind_input；C 评测需添加 --args.adv_ind_input positive
-python examples/libero/main.py \
-  --args.host 127.0.0.1 --args.port 8000 \
-  --args.task_suite_name libero_spatial --args.num_trials_per_task 50 \
-  --args.model_label sft --args.seed 7 \
-  --args.checkpoint_path "$SFT_CKPT_DIR" --args.action_horizon 15 \
-  --args.eval_output_dir results/evaluation/runs \
-  --args.save_videos false \
-  --args.video_out_path outputs/libero/videos
-```
-
-
-### 4.2 GPU/LIBERO 端到端冒烟验收
-
-仓库提供 `scripts/gpu_libero_smoke.sh`，在**真实GPU和已安装LIBERO的双虚拟环境**中执行：识别GPU → 计算归一化参数 → 2-step SFT更新 → 保存并重载Checkpoint → 启动策略服务 → 运行1个真实LIBERO Episode。执行前需要本地 π₀.₅ 权重、LeRobot Expert 数据、MuJoCo/EGL 与正确的模型环境。
-
-```bash
-export SFT_DATA_ROOT="$WORK_ROOT/lerobot_datasets/libero_demo"
-export SFT_REPO_ID="local/libero_demo"
-export PI05_BASE="$WORK_ROOT/weights/pi05_base"
-bash scripts/gpu_libero_smoke.sh
-```
-
-日志默认写入 `outputs/gpu_smoke/<run_id>/`。**此流程必须在本地/远程GPU环境实际运行，GitHub CI 不执行模型加载或LIBERO仿真；单次Episode的成功与否不能推断模型成功率。**
-
-### 4.3 常见问题排查（FAQ）
+### 4.2 常见问题排查（FAQ）
 
 | 常见现象 / 报错 | 排查与解决思路 |
 | :--- | :--- |
@@ -482,6 +428,6 @@ bash scripts/gpu_libero_smoke.sh
 | 合并后 Rollout 的 `adv_ind` 全为 `none` | 正常中间状态，须完整执行第 3.4 节的 `label_advantage_from_vlm.py` 完成重标注 |
 | RECAP 再训练后成功率无提升 | 检查 Value Model 是否过拟合、正负优势标签比例是否严重失衡以及评测时是否传入 `--args.adv_ind_input positive` |
 
-### 4.4 许可证
+### 4.3 许可证
 
 本项目遵循 [LICENSE](LICENSE) 开源许可证。

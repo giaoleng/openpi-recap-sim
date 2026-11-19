@@ -1,6 +1,6 @@
 # openpi-recap-sim
 
-基于 π₀.₅ VLA 与 LIBERO 仿真环境复现 **RECAP 论文中的优势条件策略学习方法**，提供专家示范转换、策略微调、自主 Rollout 采集、LeRobot 数据集合并、VLM Value Model 训练、N-step Advantage 标注与优势条件策略再训练流程。
+基于 π₀.₅ VLA 与 LIBERO 仿真环境复现 **RECAP 论文中的 Advantage-Conditioned Policy Learning（优势条件策略学习）方法**，提供专家示范转换、策略微调、自主 Rollout 采集、LeRobot 数据集合并、VLM Value Model 训练、N-step Advantage 标注与 Advantage-Conditioned Policy Fine-Tuning 流程。
 
 ---
 

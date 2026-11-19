@@ -14,6 +14,7 @@ MUST_EXIST = (
     "src/openpi/shared/progress.py",
     "src/openpi/shared/hf_datasets_compat.py",
     "scripts/train.py",
+    "scripts/compute_norm_stats.py",
     "scripts/train_value.py",
     "scripts/label_advantage_from_vlm.py",
     "examples/libero/main.py",

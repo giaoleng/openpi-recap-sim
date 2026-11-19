@@ -204,7 +204,7 @@ python examples/libero/main.py \
 
 ```bash
 source "$PROJECT_ROOT/.venv/bin/activate"
-python examples/libero/convert_libero_data_to_lerobot.py \
+python examples/libero/pistar_rlds_demo_processing.py \
   --data_dir "$WORK_ROOT/raw_libero_rlds" \
   --output_dir "$WORK_ROOT/lerobot_datasets" \
   --repo_name libero_demo

@@ -1,6 +1,6 @@
 # openpi-recap-sim
 
-复现 **RECAP 论文中的优势条件策略学习方法**，以 π₀.₅ VLA 和 LIBERO 为基础构建仿真闭环，覆盖专家示范微调、自主 Rollout 采集、轨迹数据融合、VLM Value Model 训练、N-step Advantage 估计与优势条件策略再训练。
+基于 π₀.₅ VLA 与 LIBERO 仿真环境复现 **RECAP 论文中的优势条件策略学习方法**，提供专家示范转换、策略微调、LIBERO 自主 Rollout 采集、VLM Value Model 训练、N-step Advantage 标注与优势条件策略再训练流程。专家示范与 Rollout 的数据集合并需使用兼容的 LeRobot 工具完成。
 
 ---
 

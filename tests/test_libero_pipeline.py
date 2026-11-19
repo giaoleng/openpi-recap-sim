@@ -27,15 +27,14 @@ class Pipeline(unittest.TestCase):
         self.assertEqual(spec['dataset_root'], '/datasets/mixed')
         self.assertFalse(spec['wandb_enabled'])
 
-    def test_stages_select_advantage_conditioning(self):
-        for stage in ('sft', 'mixed_sft'):
-            args = self.args(stage)
-            desc = mod.describe(args)
-            self.assertFalse(desc['adv_ind_conditioning'])
-            self.assertFalse(desc['adv_ind_dropout'])
-        desc = mod.describe(self.args('recap'))
-        self.assertTrue(desc['adv_ind_conditioning'])
-        self.assertTrue(desc['adv_ind_dropout'])
+    def test_abc_advantage_configuration(self):
+        for stage in ("sft", "mixed_sft"):
+            info = mod.describe(self.args(stage))
+            self.assertFalse(info["adv_ind_conditioning"])
+            self.assertFalse(info["adv_ind_dropout"])
+        recap = mod.describe(self.args("recap"))
+        self.assertTrue(recap["adv_ind_conditioning"])
+        self.assertTrue(recap["adv_ind_dropout"])
 
     def test_serve_disables_condition_dropout(self):
         args = mod.parse_args(['serve', '--stage', 'recap', '--repo-id', 'local/mixed', '--checkpoint', '/weights/recap'])
@@ -47,12 +46,6 @@ class Pipeline(unittest.TestCase):
             with patch('sys.stderr'), self.assertRaises(SystemExit):
                 mod.parse_args(['train', '--stage', 'recap', '--dataset-root', '/d',
                                 '--repo-id', 'local/d', '--init-checkpoint', '/w', *extra])
-
-    def test_guidance_beta_validation(self):
-        for value in ('-1', 'nan', 'inf'):
-            with patch('sys.stderr'), self.assertRaises(SystemExit):
-                mod.parse_args(['serve', '--stage', 'recap', '--repo-id', 'local/mixed',
-                                '--checkpoint', '/weights/recap', '--adv-guidance-beta', value])
 
     def test_dry_run_uses_no_model_dependencies(self):
         with patch.object(mod, 'build_config', side_effect=AssertionError('must not import')), patch('builtins.print'):
@@ -82,15 +75,14 @@ class Pipeline(unittest.TestCase):
             base_config: Data
             adv_ind_dropout: bool = True
             adv_ind_conditioning: bool = True
-            adv_guidance_input: bool = False
         # replace() works on a generated dataclass containing the actual override names.
         args = self.args()
         fields = ['name','model','data','exp_name','batch_size','num_train_steps','num_workers','fsdp_devices','seed',
                   'save_interval','keep_period','wandb_enabled','overwrite','resume','lr_schedule','weight_loader']
         Config = dataclasses.make_dataclass('Config', [(f, object) for f in fields])
         base = Config(**{f: None for f in fields}); base.data = Factory('old/id', Data())
-        Model = dataclasses.make_dataclass('Model', [('discrete_state_input', bool), ('adv_guidance_beta', float)])
-        base.model = Model(False, 2.0)
+        Model = dataclasses.make_dataclass('Model', [('discrete_state_input', bool)])
+        base.model = Model(False)
         training = ModuleType('openpi.training')
         training.config = NS(get_config=lambda name: base)
         training.optimizer = NS(CosineDecaySchedule=lambda **kw: kw)
@@ -101,26 +93,15 @@ class Pipeline(unittest.TestCase):
             self.assertEqual(cfg.data.repo_id, 'local/mixed')
             self.assertEqual(cfg.weight_loader, '/weights/sft/params')
             self.assertTrue(cfg.data.adv_ind_conditioning)
-            self.assertFalse(cfg.data.adv_guidance_input)
-            self.assertEqual(cfg.model.adv_guidance_beta, 1.0)
             args.mode = 'serve'; cfg = mod.build_config(args)
             self.assertFalse(cfg.data.adv_ind_dropout)
-            self.assertTrue(cfg.data.adv_guidance_input)
-            self.assertEqual(cfg.model.adv_guidance_beta, 2.0)
             self.assertFalse(cfg.overwrite)
             args.discrete_state_input = True
             self.assertTrue(mod.build_config(args).model.discrete_state_input)
-            args.adv_guidance_beta = 1.0
-            cfg = mod.build_config(args)
-            self.assertFalse(cfg.data.adv_guidance_input)
-            self.assertEqual(cfg.model.adv_guidance_beta, 1.0)
-            args.adv_guidance_beta = 2.0
             args.stage = 'mixed_sft'
             cfg = mod.build_config(args)
             self.assertFalse(cfg.data.adv_ind_conditioning)
             self.assertFalse(cfg.data.adv_ind_dropout)
-            self.assertFalse(cfg.data.adv_guidance_input)
-            self.assertEqual(cfg.model.adv_guidance_beta, 1.0)
             args.stage = 'sft'
             self.assertFalse(mod.build_config(args).data.adv_ind_conditioning)
 

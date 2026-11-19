@@ -323,7 +323,14 @@ python examples/libero/main.py \
 ```bash
 source "$PROJECT_ROOT/.venv/bin/activate"
 
-# 训练 VLM Value Model（用于后续优势估计，不作为仿真成功判定器）
+# 1. 合并专家 Demo 与自主 Rollout 数据集
+python scripts/merge_datasets.py \\
+  --sources \\
+    "$WORK_ROOT/lerobot_datasets/libero_demo" \\
+    "$WORK_ROOT/lerobot_datasets/libero_rollout_round1" \\
+  --output "$WORK_ROOT/lerobot_datasets/libero_mixed_round1"
+
+# 2. 训练 VLM Value Model（用于后续优势估计，不作为仿真成功判定器）
 python scripts/train_value.py \
   --data_dir "$WORK_ROOT/lerobot_datasets/libero_mixed_round1" \
   --checkpoint_dir "$WORK_ROOT/checkpoints/value_model/round1" \
